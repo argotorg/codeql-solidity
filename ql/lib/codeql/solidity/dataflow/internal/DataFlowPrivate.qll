@@ -100,15 +100,15 @@ private predicate expressionFlowStep(Node nodeFrom, Node nodeTo) {
   // Flow from branches to the conditional
   exists(Solidity::TernaryExpression ternary |
     (
-      nodeFrom.asExpr() = ternary.getChild(1) or  // then branch
-      nodeFrom.asExpr() = ternary.getChild(2)     // else branch
+      nodeFrom.asExpr() = ternary.getChild(1) or // then branch
+      nodeFrom.asExpr() = ternary.getChild(2) // else branch
     ) and
     nodeTo.asExpr() = ternary
   )
   or
   // Array access: array[index] - value flows from array to access result
   exists(Solidity::ArrayAccess access |
-    nodeFrom.asExpr() = access.getBase() and  // base array
+    nodeFrom.asExpr() = access.getBase() and // base array
     nodeTo.asExpr() = access
   )
   or
@@ -128,7 +128,7 @@ private predicate expressionFlowStep(Node nodeFrom, Node nodeTo) {
   // Unary expression with value preservation
   exists(Solidity::UnaryExpression unary |
     // Only for unary operations that preserve the value's taint
-    not unary.getOperator().toString() = "!" and  // logical not changes boolean, doesn't propagate taint
+    not unary.getOperator().getValue().trim() = "!" and // logical not changes boolean, doesn't propagate taint
     nodeFrom.asExpr() = unary.getArgument() and
     nodeTo.asExpr() = unary
   )
@@ -150,15 +150,18 @@ private predicate expressionFlowStep(Node nodeFrom, Node nodeTo) {
  * Holds if the operator is a comparison operator (produces boolean, no taint).
  */
 private predicate isComparisonOperator(string op) {
-  op = "==" or op = "!=" or op = "<" or op = ">" or op = "<=" or op = ">="
+  op = "==" or
+  op = "!=" or
+  op = "<" or
+  op = ">" or
+  op = "<=" or
+  op = ">="
 }
 
 /**
  * Holds if the operator is a logical operator (produces boolean, no taint).
  */
-private predicate isLogicalOperator(string op) {
-  op = "&&" or op = "||"
-}
+private predicate isLogicalOperator(string op) { op = "&&" or op = "||" }
 
 /**
  * Holds if the operator propagates taint from operands to result.
@@ -167,9 +170,11 @@ private predicate isLogicalOperator(string op) {
  */
 private predicate isTaintPropagatingOperator(string op) {
   // Arithmetic operators
-  op in ["+", "-", "*", "/", "%", "**"] or
+  op in ["+", "-", "*", "/", "%", "**"]
+  or
   // Bitwise operators
-  op in ["&", "|", "^", "~", "<<", ">>"] or
+  op in ["&", "|", "^", "~", "<<", ">>"]
+  or
   // String concatenation (Solidity 0.8.12+)
   op = "++"
 }
@@ -181,7 +186,8 @@ private predicate isCastExpression(Solidity::CallExpression call) {
   exists(Solidity::AstNode func |
     func = call.getFunction() and
     (
-      func instanceof Solidity::PrimitiveType or
+      func instanceof Solidity::PrimitiveType
+      or
       // Contract/struct casts
       func instanceof Solidity::Identifier
     )
@@ -214,7 +220,10 @@ predicate jumpStep(Node nodeFrom, Node nodeTo) {
  * Holds if data flows from a call argument to the corresponding parameter.
  */
 private predicate argumentToParameterFlow(Node nodeFrom, Node nodeTo) {
-  exists(Solidity::CallExpression call, Solidity::FunctionDefinition func, int i, Solidity::Parameter param |
+  exists(
+    Solidity::CallExpression call, Solidity::FunctionDefinition func, int i,
+    Solidity::Parameter param
+  |
     resolveCall(call, func) and
     nodeFrom = TArgumentNode(call, i) and
     // Parameters are children of the function definition
@@ -253,7 +262,8 @@ private predicate resolveCall(Solidity::CallExpression call, Solidity::FunctionD
   // Member call: contract.method()
   exists(Solidity::MemberExpression member |
     member = call.getFunction() and
-    member.getProperty().(Solidity::AstNode).toString() = func.getName().(Solidity::AstNode).toString()
+    member.getProperty().(Solidity::AstNode).getValue() =
+      func.getName().(Solidity::AstNode).toString()
   )
 }
 
@@ -284,13 +294,17 @@ predicate callResultFlowStep(Node nodeFrom, Node nodeTo) {
  */
 predicate additionalTaintStep(Node nodeFrom, Node nodeTo) {
   // String concatenation (abi.encodePacked, string.concat)
-  stringConcatTaintStep(nodeFrom, nodeTo) or
+  stringConcatTaintStep(nodeFrom, nodeTo)
+  or
   // Array operations
-  arrayTaintStep(nodeFrom, nodeTo) or
+  arrayTaintStep(nodeFrom, nodeTo)
+  or
   // ABI encoding/decoding
-  abiEncodeTaintStep(nodeFrom, nodeTo) or
+  abiEncodeTaintStep(nodeFrom, nodeTo)
+  or
   // Keccak256 hashing (taint flows through hash)
-  hashTaintStep(nodeFrom, nodeTo) or
+  hashTaintStep(nodeFrom, nodeTo)
+  or
   // Low-level call data
   lowLevelCallTaintStep(nodeFrom, nodeTo)
 }
@@ -303,16 +317,16 @@ private predicate stringConcatTaintStep(Node nodeFrom, Node nodeTo) {
     member = call.getFunction() and
     (
       // abi.encodePacked(...)
-      member.getObject().(Solidity::Identifier).toString() = "abi" and
-      member.getProperty().(Solidity::AstNode).toString() = "encodePacked"
+      member.getObject().(Solidity::Identifier).getValue() = "abi" and
+      member.getProperty().(Solidity::AstNode).getValue() = "encodePacked"
       or
       // string.concat(...)
-      member.getObject().(Solidity::Identifier).toString() = "string" and
-      member.getProperty().(Solidity::AstNode).toString() = "concat"
+      member.getObject().(Solidity::Identifier).getValue() = "string" and
+      member.getProperty().(Solidity::AstNode).getValue() = "concat"
       or
       // bytes.concat(...)
-      member.getObject().(Solidity::Identifier).toString() = "bytes" and
-      member.getProperty().(Solidity::AstNode).toString() = "concat"
+      member.getObject().(Solidity::Identifier).getValue() = "bytes" and
+      member.getProperty().(Solidity::AstNode).getValue() = "concat"
     ) and
     nodeFrom.asExpr() = call.getChild(_) and
     nodeTo.asExpr() = call
@@ -326,7 +340,7 @@ private predicate arrayTaintStep(Node nodeFrom, Node nodeTo) {
   // Array push
   exists(Solidity::CallExpression call, Solidity::MemberExpression member |
     member = call.getFunction() and
-    member.getProperty().(Solidity::AstNode).toString() = "push" and
+    member.getProperty().(Solidity::AstNode).getValue() = "push" and
     nodeFrom.asExpr() = call.getChild(0) and
     nodeTo.asExpr() = member.getObject()
   )
@@ -338,13 +352,13 @@ private predicate arrayTaintStep(Node nodeFrom, Node nodeTo) {
 private predicate abiEncodeTaintStep(Node nodeFrom, Node nodeTo) {
   exists(Solidity::CallExpression call, Solidity::MemberExpression member |
     member = call.getFunction() and
-    member.getObject().(Solidity::Identifier).toString() = "abi" and
+    member.getObject().(Solidity::Identifier).getValue() = "abi" and
     (
-      member.getProperty().(Solidity::AstNode).toString() = "encode" or
-      member.getProperty().(Solidity::AstNode).toString() = "encodePacked" or
-      member.getProperty().(Solidity::AstNode).toString() = "encodeWithSelector" or
-      member.getProperty().(Solidity::AstNode).toString() = "encodeWithSignature" or
-      member.getProperty().(Solidity::AstNode).toString() = "encodeCall"
+      member.getProperty().(Solidity::AstNode).getValue() = "encode" or
+      member.getProperty().(Solidity::AstNode).getValue() = "encodePacked" or
+      member.getProperty().(Solidity::AstNode).getValue() = "encodeWithSelector" or
+      member.getProperty().(Solidity::AstNode).getValue() = "encodeWithSignature" or
+      member.getProperty().(Solidity::AstNode).getValue() = "encodeCall"
     ) and
     nodeFrom.asExpr() = call.getChild(_) and
     nodeTo.asExpr() = call
@@ -353,8 +367,8 @@ private predicate abiEncodeTaintStep(Node nodeFrom, Node nodeTo) {
   // abi.decode - return value is tainted if input is tainted
   exists(Solidity::CallExpression call, Solidity::MemberExpression member |
     member = call.getFunction() and
-    member.getObject().(Solidity::Identifier).toString() = "abi" and
-    member.getProperty().(Solidity::AstNode).toString() = "decode" and
+    member.getObject().(Solidity::Identifier).getValue() = "abi" and
+    member.getProperty().(Solidity::AstNode).getValue() = "decode" and
     nodeFrom.asExpr() = call.getChild(0) and
     nodeTo.asExpr() = call
   )
@@ -366,9 +380,9 @@ private predicate abiEncodeTaintStep(Node nodeFrom, Node nodeTo) {
 private predicate hashTaintStep(Node nodeFrom, Node nodeTo) {
   exists(Solidity::CallExpression call |
     (
-      call.getFunction().(Solidity::Identifier).toString() = "keccak256" or
-      call.getFunction().(Solidity::Identifier).toString() = "sha256" or
-      call.getFunction().(Solidity::Identifier).toString() = "ripemd160"
+      call.getFunction().(Solidity::Identifier).getValue() = "keccak256" or
+      call.getFunction().(Solidity::Identifier).getValue() = "sha256" or
+      call.getFunction().(Solidity::Identifier).getValue() = "ripemd160"
     ) and
     nodeFrom.asExpr() = call.getChild(0) and
     nodeTo.asExpr() = call
@@ -383,9 +397,9 @@ private predicate lowLevelCallTaintStep(Node nodeFrom, Node nodeTo) {
   exists(Solidity::CallExpression call, Solidity::MemberExpression member |
     member = call.getFunction() and
     (
-      member.getProperty().(Solidity::AstNode).toString() = "call" or
-      member.getProperty().(Solidity::AstNode).toString() = "delegatecall" or
-      member.getProperty().(Solidity::AstNode).toString() = "staticcall"
+      member.getProperty().(Solidity::AstNode).getValue() = "call" or
+      member.getProperty().(Solidity::AstNode).getValue() = "delegatecall" or
+      member.getProperty().(Solidity::AstNode).getValue() = "staticcall"
     ) and
     nodeFrom.asExpr() = call.getChild(0) and
     nodeTo.asExpr() = call
@@ -421,8 +435,10 @@ predicate stateVariableFlowStep(Node nodeFrom, Node nodeTo) {
 predicate storageAliasFlowStep(Node nodeFrom, Node nodeTo) {
   // Array element write to array element read (conservative: any index may alias)
   // Storage is global — cross-function aliasing within same contract is valid
-  exists(Solidity::AssignmentExpression writeAssign, Solidity::ArrayAccess writeAccess,
-         Solidity::ArrayAccess readAccess |
+  exists(
+    Solidity::AssignmentExpression writeAssign, Solidity::ArrayAccess writeAccess,
+    Solidity::ArrayAccess readAccess
+  |
     writeAssign.getLeft() = writeAccess and
     nodeFrom.asExpr() = writeAssign.getRight() and
     nodeTo.asExpr() = readAccess and
@@ -433,8 +449,10 @@ predicate storageAliasFlowStep(Node nodeFrom, Node nodeTo) {
   )
   or
   // Mapping element write to mapping element read
-  exists(Solidity::AssignmentExpression writeAssign, Solidity::ArrayAccess writeAccess,
-         Solidity::ArrayAccess readAccess |
+  exists(
+    Solidity::AssignmentExpression writeAssign, Solidity::ArrayAccess writeAccess,
+    Solidity::ArrayAccess readAccess
+  |
     writeAssign.getLeft() = writeAccess and
     nodeFrom.asExpr() = writeAssign.getRight() and
     nodeTo.asExpr() = readAccess and
@@ -489,41 +507,29 @@ predicate mayAliasStorageAccess(Solidity::ArrayAccess access1, Solidity::ArrayAc
 /**
  * Gets the enclosing callable (function/constructor/modifier) of a node.
  */
-Solidity::AstNode getEnclosingCallable(Node n) {
-  result = n.getEnclosingCallable()
-}
+Solidity::AstNode getEnclosingCallable(Node n) { result = n.getEnclosingCallable() }
 
 /**
  * Holds if `n` is an expression node.
  */
-predicate isExprNode(Node n) {
-  n instanceof ExprNode
-}
+predicate isExprNode(Node n) { n instanceof ExprNode }
 
 /**
  * Holds if `n` is a parameter node.
  */
-predicate isParameterNode(Node n) {
-  n instanceof ParameterNode
-}
+predicate isParameterNode(Node n) { n instanceof ParameterNode }
 
 /**
  * Holds if `n` represents a value at the entry of a function.
  */
-predicate isEntryNode(Node n) {
-  n instanceof ParameterNode
-}
+predicate isEntryNode(Node n) { n instanceof ParameterNode }
 
 /**
  * Holds if `n` is an argument node.
  */
-predicate isArgumentNode(Node n) {
-  n instanceof ArgumentNode
-}
+predicate isArgumentNode(Node n) { n instanceof ArgumentNode }
 
 /**
  * Holds if `n` is a return node.
  */
-predicate isReturnNode(Node n) {
-  n instanceof ReturnValueNode
-}
+predicate isReturnNode(Node n) { n instanceof ReturnValueNode }

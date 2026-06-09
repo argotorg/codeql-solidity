@@ -131,13 +131,13 @@ contract TrustedContractCall {
 }
 
 // Edge case: View function call (should NOT flag - staticcall can't reenter)
+interface IOracle {
+    function getPrice() external view returns (uint256);
+}
+
 contract ViewFunctionCall {
     address public oracle;
     mapping(address => uint256) public balances;
-
-    interface IOracle {
-        function getPrice() external view returns (uint256);
-    }
 
     // This might be flagged but view calls are safer
     function updateWithPrice() external {

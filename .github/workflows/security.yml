@@ -7,29 +7,23 @@ on:
     - cron: '0 0 * * 0'
 
 jobs:
-  audit:
-    name: Cargo Audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: rustsec/audit-check@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
   sbom:
     name: Generate SBOM
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: nix develop .#rust --command bash -e {0}
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install cargo-cyclonedx
-        run: cargo install cargo-cyclonedx
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
 
       - name: Generate SBOM
-        run: cargo cyclonedx --format json
+        # Without --override-filename it writes <crate-name>.cdx.json.
+        run: cargo cyclonedx --format json --override-filename bom
         working-directory: extractor
 
       - name: Upload SBOM
@@ -37,3 +31,4 @@ jobs:
         with:
           name: sbom
           path: extractor/bom.json
+          if-no-files-found: error

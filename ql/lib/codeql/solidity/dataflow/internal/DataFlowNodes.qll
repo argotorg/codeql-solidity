@@ -43,9 +43,7 @@ newtype TNode =
   /** A call result node (value returned from a call). */
   TCallResultNode(Solidity::CallExpression call) or
   /** An argument node in a call. */
-  TArgumentNode(Solidity::CallExpression call, int i) {
-    exists(call.getChild(i))
-  } or
+  TArgumentNode(Solidity::CallExpression call, int i) { exists(call.getChild(i)) } or
   /** A post-update node (value after modification). */
   TPostUpdateNode(Solidity::AstNode expr) {
     // For expressions that are modified (e.g., left side of assignment)
@@ -217,7 +215,7 @@ class ParameterNode extends Node {
   predicate isMemory() {
     exists(Solidity::AstNode loc |
       loc = param.getStorageLocation() and
-      loc.toString() = "memory"
+      loc.getValue().trim() = "memory"
     )
   }
 
@@ -225,7 +223,7 @@ class ParameterNode extends Node {
   predicate isCalldata() {
     exists(Solidity::AstNode loc |
       loc = param.getStorageLocation() and
-      loc.toString() = "calldata"
+      loc.getValue().trim() = "calldata"
     )
   }
 
@@ -233,7 +231,7 @@ class ParameterNode extends Node {
   predicate isStorage() {
     exists(Solidity::AstNode loc |
       loc = param.getStorageLocation() and
-      loc.toString() = "storage"
+      loc.getValue().trim() = "storage"
     )
   }
 }
@@ -269,9 +267,7 @@ class ReturnValueNode extends Node {
   Solidity::ReturnStatement getReturnStatement() { result = ret }
 
   /** Gets the returned expression, if any. */
-  Solidity::Expression getReturnedExpr() {
-    result = ret.getAFieldOrChild()
-  }
+  Solidity::Expression getReturnedExpr() { result = ret.getAFieldOrChild() }
 }
 
 /**

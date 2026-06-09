@@ -1,13 +1,7 @@
 /**
  * @name Inheritance chain analysis
- * @description Analyzes inheritance hierarchies, overridden functions, and virtual functions.
- * @kind problem
- * @problem.severity recommendation
- * @precision high
+ * @description Inheritance hierarchies, overridden functions, and virtual functions.
  * @id solidity/inheritance-analysis
- * @tags analysis
- *       inheritance
- *       solidity
  */
 
 import codeql.solidity.ast.internal.TreeSitter
@@ -58,133 +52,78 @@ string getFunctionVisibility(Solidity::FunctionDefinition func) {
   result = "public"
 }
 
-/**
- * Gets a modifier applied to a function.
- */
-string getFunctionModifier(Solidity::FunctionDefinition func) {
-  exists(Solidity::ModifierInvocation mod |
-    mod.getParent() = func and
-    result = mod.getValue()
-  )
-}
-
-/**
- * Contract inheritance information.
- * Output: type|name|is_abstract|direct_parents|depth|file:line
- */
-string formatContractInheritance(Solidity::ContractDeclaration contract) {
-  exists(string contractType, string isAbstract, string parents, int depth |
-    contractType = "contract" and
-    (
-      if InheritanceGraph::isAbstractContract(contract)
-      then isAbstract = "true"
-      else isAbstract = "false"
+/** One row per contract, with its direct bases and inheritance depth. */
+query predicate contracts(
+  string name, boolean isAbstract, string directBases, int depth, Solidity::ContractDeclaration node
+) {
+  name = getContractName(node) and
+  (
+    if InheritanceGraph::isAbstractContract(node) then isAbstract = true else isAbstract = false
+  ) and
+  directBases =
+    concat(Solidity::ContractDeclaration base |
+      base = InheritanceGraph::getDirectBase(node)
+    |
+      getContractName(base), ","
     ) and
-    parents =
-      concat(Solidity::ContractDeclaration base |
-        base = InheritanceGraph::getDirectBase(contract)
-      |
-        getContractName(base), ","
-      ) and
-    depth = InheritanceGraph::getInheritanceDepth(contract) and
-    result =
-      contractType + "|" + getContractName(contract) + "|" + isAbstract + "|" + parents + "|" +
-        depth.toString() + "|" + contract.getLocation().getFile().getName() + ":" +
-        contract.getLocation().getStartLine().toString()
+  depth = InheritanceGraph::getInheritanceDepth(node)
+}
+
+/** One row per interface, with its direct base interfaces. */
+query predicate interfaces(string name, string directBases, Solidity::InterfaceDeclaration node) {
+  name = getInterfaceName(node) and
+  directBases =
+    concat(Solidity::InterfaceDeclaration base |
+      base = InheritanceGraph::getDirectBaseInterface(node)
+    |
+      getInterfaceName(base), ","
+    )
+}
+
+/** One row per library. */
+query predicate libraries(string name, Solidity::LibraryDeclaration node) {
+  name = getLibraryName(node)
+}
+
+/** Functions marked `override`, paired with the declaration they override. */
+query predicate overriddenFunctions(
+  string name, string contract, string overridesContract, string visibility,
+  Solidity::FunctionDefinition node
+) {
+  InheritanceGraph::isOverrideFunction(node) and
+  exists(Solidity::ContractDeclaration c, Solidity::FunctionDefinition overridden |
+    node.getParent+() = c and
+    overridden = InheritanceGraph::getOverriddenFunction(node) and
+    name = getFunctionName(node) and
+    contract = getContractName(c) and
+    overridesContract = getContractName(overridden.getParent+()) and
+    visibility = getFunctionVisibility(node)
   )
 }
 
-/**
- * Interface information.
- */
-string formatInterfaceInfo(Solidity::InterfaceDeclaration iface) {
-  exists(string parents |
-    parents =
-      concat(Solidity::InterfaceDeclaration base |
-        base = InheritanceGraph::getDirectBaseInterface(iface)
-      |
-        getInterfaceName(base), ","
-      ) and
-    result =
-      "interface|" + getInterfaceName(iface) + "|false|" + parents + "|0|" +
-        iface.getLocation().getFile().getName() + ":" +
-        iface.getLocation().getStartLine().toString()
+/** Functions marked `virtual`. */
+query predicate virtualFunctions(
+  string name, string contract, string visibility, Solidity::FunctionDefinition node
+) {
+  InheritanceGraph::isVirtualFunction(node) and
+  exists(Solidity::ContractDeclaration c |
+    node.getParent+() = c and
+    name = getFunctionName(node) and
+    contract = getContractName(c) and
+    visibility = getFunctionVisibility(node)
   )
 }
 
-/**
- * Library information.
- */
-string formatLibraryInfo(Solidity::LibraryDeclaration lib) {
-  result =
-    "library|" + getLibraryName(lib) + "|false||0|" + lib.getLocation().getFile().getName() + ":" +
-      lib.getLocation().getStartLine().toString()
-}
-
-/**
- * Overridden function information.
- * Output: override|func_name|declaring_contract|overrides_contract|visibility|file:line
- */
-string formatOverriddenFunction(Solidity::FunctionDefinition func) {
-  InheritanceGraph::isOverrideFunction(func) and
-  exists(
-    Solidity::ContractDeclaration contract, Solidity::FunctionDefinition overridden,
-    string visibility
-  |
-    func.getParent+() = contract and
-    overridden = InheritanceGraph::getOverriddenFunction(func) and
-    visibility = getFunctionVisibility(func) and
-    result =
-      "override|" + getFunctionName(func) + "|" + getContractName(contract) + "|" +
-        getContractName(overridden.getParent+()) + "|" + visibility + "|" +
-        func.getLocation().getFile().getName() + ":" +
-        func.getLocation().getStartLine().toString()
-  )
-}
-
-/**
- * Virtual function information.
- * Output: virtual|func_name|contract|visibility|file:line
- */
-string formatVirtualFunction(Solidity::FunctionDefinition func) {
-  InheritanceGraph::isVirtualFunction(func) and
-  exists(Solidity::ContractDeclaration contract, string visibility |
-    func.getParent+() = contract and
-    visibility = getFunctionVisibility(func) and
-    result =
-      "virtual|" + getFunctionName(func) + "|" + getContractName(contract) + "|" + visibility + "|" +
-        func.getLocation().getFile().getName() + ":" +
-        func.getLocation().getStartLine().toString()
-  )
-}
-
-/**
- * Diamond inheritance detection.
- * Output: diamond|contract|repeated_base
- */
-string formatDiamondInheritance(Solidity::ContractDeclaration contract) {
+/** Contracts reaching the same base through more than one intermediate. */
+query predicate diamondInheritance(
+  string contract, string repeatedBase, Solidity::ContractDeclaration node
+) {
   exists(Solidity::ContractDeclaration base |
-    // Count how many times this base appears in inheritance paths
     count(Solidity::ContractDeclaration intermediate |
-      InheritanceGraph::inheritsFrom(contract, intermediate) and
+      InheritanceGraph::inheritsFrom(node, intermediate) and
       InheritanceGraph::inheritsFrom(intermediate, base)
     ) > 1 and
-    result = "diamond|" + getContractName(contract) + "|" + getContractName(base)
+    contract = getContractName(node) and
+    repeatedBase = getContractName(base)
   )
 }
-
-// Main query: output all inheritance information
-from string info
-where
-  info = formatContractInheritance(_)
-  or
-  info = formatInterfaceInfo(_)
-  or
-  info = formatLibraryInfo(_)
-  or
-  info = formatOverriddenFunction(_)
-  or
-  info = formatVirtualFunction(_)
-  or
-  info = formatDiamondInheritance(_)
-select info, info

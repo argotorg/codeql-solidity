@@ -80,16 +80,20 @@ predicate directlyModifiesState(Solidity::AstNode node, Solidity::ContractDeclar
 
 ### Basic Pattern: Direct CEI Violation
 
-Uses CFG reachability (`successor+`) to check if a state modification is reachable after an external call:
+Checks whether a state modification can execute after an external call:
 
 ```ql
 // Case 1: Direct state mod in same function
 exists(Solidity::AstNode mod, string varName |
-  mod.getParent+() = func and
   directlyModifiesState(mod, contract, varName) and
-  callReachesStateMod(call, mod)  // successor+(call, mod)
+  executesAfter(call, mod, func)
 )
 ```
+
+`executesAfter` is CFG reachability (`successor+`) within the enclosing function.
+Branches are therefore respected: a call in an `if` branch is not paired with a
+write in the `else`. Loop back edges are followed, so a write that precedes the
+call in source order is still reported when the loop can reach it again.
 
 ### Interprocedural CEI Violation
 

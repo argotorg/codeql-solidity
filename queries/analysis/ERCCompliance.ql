@@ -1,14 +1,7 @@
 /**
  * @name ERC standard compliance analysis
- * @description Analyzes ERC-20, ERC-721, ERC-1155 compliance.
- * @kind problem
- * @problem.severity recommendation
- * @precision high
+ * @description ERC-20, ERC-721 and ERC-1155 compliance.
  * @id solidity/erc-compliance
- * @tags analysis
- *       erc
- *       standards
- *       solidity
  */
 
 import codeql.solidity.ast.internal.TreeSitter
@@ -105,177 +98,119 @@ predicate isERC1155Function(string name) {
     ]
 }
 
-/**
- * Contract function (for compliance checking).
- * Output: contract_func|contract|name|visibility|mutability|params|file:line
- */
-string formatContractFunction(Solidity::FunctionDefinition func) {
-  exists(
-    Solidity::ContractDeclaration contract, string visibility, string mutability, int params
-  |
-    func.getParent+() = contract and
-    visibility = getFunctionVisibility(func) and
-    mutability = getFunctionMutability(func) and
-    params = getParamCount(func) and
-    result =
-      "contract_func|" + getContractName(contract) + "|" + getFunctionName(func) + "|" + visibility
-        + "|" + mutability + "|" + params.toString() + "|" +
-        func.getLocation().getFile().getName() + ":" + func.getLocation().getStartLine().toString()
-  )
-}
-
-/**
- * Interface function.
- * Output: interface_func|interface|name|visibility|mutability|params|file:line
- */
-string formatInterfaceFunction(Solidity::FunctionDefinition func) {
-  exists(Solidity::InterfaceDeclaration iface, string visibility, string mutability, int params |
-    func.getParent+() = iface and
-    visibility = getFunctionVisibility(func) and
-    mutability = getFunctionMutability(func) and
-    params = getParamCount(func) and
-    result =
-      "interface_func|" + getInterfaceName(iface) + "|" + getFunctionName(func) + "|" + visibility +
-        "|" + mutability + "|" + params.toString() + "|" +
-        func.getLocation().getFile().getName() + ":" + func.getLocation().getStartLine().toString()
-  )
-}
-
-/**
- * Event definition with parameters.
- * Output: event|contract|name|param_count|file:line
- */
-string formatEvent(Solidity::EventDefinition event) {
-  exists(Solidity::ContractDeclaration contract, int paramCount |
-    event.getParent+() = contract and
-    paramCount = count(Solidity::EventParameter p | p.getParent() = event) and
-    result =
-      "event|" + getContractName(contract) + "|" + event.getName().(Solidity::AstNode).getValue() +
-        "|" + paramCount.toString() + "|" + event.getLocation().getFile().getName() + ":" +
-        event.getLocation().getStartLine().toString()
-  )
+/** Maps each supported standard to the functions it requires. */
+predicate requiredFunction(string standard, string name) {
+  standard = "ERC-20" and isERC20Function(name)
   or
-  exists(Solidity::InterfaceDeclaration iface, int paramCount |
-    event.getParent+() = iface and
-    paramCount = count(Solidity::EventParameter p | p.getParent() = event) and
-    result =
-      "event|" + getInterfaceName(iface) + "|" + event.getName().(Solidity::AstNode).getValue() +
-        "|" + paramCount.toString() + "|" + event.getLocation().getFile().getName() + ":" +
-        event.getLocation().getStartLine().toString()
+  standard = "ERC-721" and isERC721Function(name)
+  or
+  standard = "ERC-1155" and isERC1155Function(name)
+}
+
+/** Functions declared in a contract. */
+query predicate contractFunctions(
+  string contract, string name, string visibility, string mutability, int params,
+  Solidity::FunctionDefinition node
+) {
+  exists(Solidity::ContractDeclaration c |
+    node.getParent+() = c and
+    contract = getContractName(c) and
+    name = getFunctionName(node) and
+    visibility = getFunctionVisibility(node) and
+    mutability = getFunctionMutability(node) and
+    params = getParamCount(node)
   )
 }
 
-/**
- * Import statement.
- * Output: import|path|file:line
- */
-string formatImport(Solidity::ImportDirective imp) {
-  exists(string path |
-    path = imp.getSource().(Solidity::AstNode).getValue() and
-    result =
-      "import|" + path + "|" + imp.getLocation().getFile().getName() + ":" +
-        imp.getLocation().getStartLine().toString()
+/** Functions declared in an interface. */
+query predicate interfaceFunctions(
+  string interface, string name, string visibility, string mutability, int params,
+  Solidity::FunctionDefinition node
+) {
+  exists(Solidity::InterfaceDeclaration i |
+    node.getParent+() = i and
+    interface = getInterfaceName(i) and
+    name = getFunctionName(node) and
+    visibility = getFunctionVisibility(node) and
+    mutability = getFunctionMutability(node) and
+    params = getParamCount(node)
   )
 }
 
-/**
- * Inheritance specifier (what a contract inherits from).
- * Output: inherits|contract|base|file:line
- */
-string formatInheritance(Solidity::InheritanceSpecifier spec) {
-  exists(Solidity::ContractDeclaration contract, Solidity::Identifier baseId |
-    spec.getParent() = contract and
-    baseId = spec.getAncestor().getAChild*() and
-    result =
-      "inherits|" + getContractName(contract) + "|" + baseId.getValue() + "|" +
-        spec.getLocation().getFile().getName() + ":" +
-        spec.getLocation().getStartLine().toString()
-  )
-}
-
-/**
- * ERC-20 compliance indicator.
- * Output: erc20_func|contract|name|has_func
- */
-string formatERC20Compliance(Solidity::ContractDeclaration contract) {
-  exists(string funcName |
-    isERC20Function(funcName) and
-    (
-      exists(Solidity::FunctionDefinition func |
-        func.getParent+() = contract and
-        getFunctionName(func) = funcName
-      ) and
-      result = "erc20_func|" + getContractName(contract) + "|" + funcName + "|true"
-      or
-      not exists(Solidity::FunctionDefinition func |
-        func.getParent+() = contract and
-        getFunctionName(func) = funcName
-      ) and
-      result = "erc20_func|" + getContractName(contract) + "|" + funcName + "|false"
+/** Events declared in a contract or interface. */
+query predicate events(
+  string container, string name, int paramCount, Solidity::EventDefinition node
+) {
+  (
+    exists(Solidity::ContractDeclaration c |
+      node.getParent+() = c and container = getContractName(c)
     )
+    or
+    exists(Solidity::InterfaceDeclaration i |
+      node.getParent+() = i and container = getInterfaceName(i)
+    )
+  ) and
+  name = node.getName().(Solidity::AstNode).getValue() and
+  paramCount = count(Solidity::EventParameter p | p.getParent() = node)
+}
+
+/** `import` directives. */
+query predicate imports(string path, Solidity::ImportDirective node) {
+  path = node.getSource().(Solidity::AstNode).getValue()
+}
+
+/** Direct `is Base` relationships. */
+query predicate inheritance(
+  string contract, string base, Solidity::InheritanceSpecifier node
+) {
+  exists(Solidity::ContractDeclaration c, Solidity::Identifier baseId |
+    node.getParent() = c and
+    baseId = node.getAncestor().getAChild*() and
+    contract = getContractName(c) and
+    base = baseId.getValue()
+  )
+}
+
+/** Holds if `c` declares at least one function required by `standard`. */
+predicate implementsSome(Solidity::ContractDeclaration c, string standard) {
+  exists(Solidity::FunctionDefinition f, string name |
+    f.getParent+() = c and
+    getFunctionName(f) = name and
+    requiredFunction(standard, name)
   )
 }
 
 /**
- * ERC-721 compliance indicator.
+ * One row per (contract, standard, required function), with whether the contract
+ * declares it. Restricted to contracts that declare at least one function of the
+ * standard — without that the table is every contract crossed with every standard.
  */
-string formatERC721Compliance(Solidity::ContractDeclaration contract) {
-  exists(string funcName |
-    isERC721Function(funcName) and
-    (
-      exists(Solidity::FunctionDefinition func |
-        func.getParent+() = contract and
-        getFunctionName(func) = funcName
-      ) and
-      result = "erc721_func|" + getContractName(contract) + "|" + funcName + "|true"
-      or
-      not exists(Solidity::FunctionDefinition func |
-        func.getParent+() = contract and
-        getFunctionName(func) = funcName
-      ) and
-      result = "erc721_func|" + getContractName(contract) + "|" + funcName + "|false"
-    )
+query predicate ercCompliance(
+  string contract, string standard, string requiredFunc, boolean present,
+  Solidity::ContractDeclaration node
+) {
+  implementsSome(node, standard) and
+  contract = getContractName(node) and
+  requiredFunction(standard, requiredFunc) and
+  (
+    if exists(Solidity::FunctionDefinition f |
+        f.getParent+() = node and getFunctionName(f) = requiredFunc
+      )
+    then present = true
+    else present = false
   )
 }
 
-/**
- * ERC-1155 compliance indicator.
- */
-string formatERC1155Compliance(Solidity::ContractDeclaration contract) {
-  exists(string funcName |
-    isERC1155Function(funcName) and
-    (
-      exists(Solidity::FunctionDefinition func |
-        func.getParent+() = contract and
-        getFunctionName(func) = funcName
-      ) and
-      result = "erc1155_func|" + getContractName(contract) + "|" + funcName + "|true"
-      or
-      not exists(Solidity::FunctionDefinition func |
-        func.getParent+() = contract and
-        getFunctionName(func) = funcName
-      ) and
-      result = "erc1155_func|" + getContractName(contract) + "|" + funcName + "|false"
-    )
-  )
+/** Per (contract, standard) counts of declared vs required functions. */
+query predicate ercComplianceSummary(
+  string contract, string standard, int declared, int required, Solidity::ContractDeclaration node
+) {
+  implementsSome(node, standard) and
+  contract = getContractName(node) and
+  declared =
+    count(string name |
+      requiredFunction(standard, name) and
+      exists(Solidity::FunctionDefinition f | f.getParent+() = node and getFunctionName(f) = name)
+    ) and
+  required = count(string name | requiredFunction(standard, name))
 }
-
-// Main query
-from string info
-where
-  info = formatContractFunction(_)
-  or
-  info = formatInterfaceFunction(_)
-  or
-  info = formatEvent(_)
-  or
-  info = formatImport(_)
-  or
-  info = formatInheritance(_)
-  or
-  info = formatERC20Compliance(_)
-  or
-  info = formatERC721Compliance(_)
-  or
-  info = formatERC1155Compliance(_)
-select info, info

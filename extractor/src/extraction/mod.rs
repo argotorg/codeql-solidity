@@ -6,6 +6,7 @@
 //! - AST traversal and TRAP generation
 //! - Source archive management
 
+mod constfold;
 mod extractor;
 
 use anyhow::{Context, Result};
@@ -13,6 +14,7 @@ use rayon::prelude::*;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tracing::{error, info, warn};
 use walkdir::WalkDir;
 
@@ -70,19 +72,33 @@ pub fn run(options: ExtractOptions) -> Result<()> {
         .map(PathBuf::from)
         .collect();
 
-    info!("Processing {} files", files.len());
+    let total = files.len();
+    info!("Processing {} files", total);
+
+    // Periodic progress reporting. `done` is bumped once per finished file
+    // across all rayon worker threads; we log roughly every 5% (and on the last
+    // file) so a long run shows steady progress instead of going silent.
+    let done = AtomicUsize::new(0);
+    let progress_step = (total / 20).max(1);
 
     // Process files in parallel
     let results: Vec<Result<(), String>> = files
         .par_iter()
         .map(|file| {
-            process_file(
+            let result = process_file(
                 file.as_path(),
                 options.trap_dir.as_path(),
                 options.source_archive_dir.as_path(),
                 options.compression,
             )
-            .map_err(|e| format!("{}: {}", file.display(), e))
+            .map_err(|e| format!("{}: {}", file.display(), e));
+
+            let n = done.fetch_add(1, Ordering::Relaxed) + 1;
+            if n % progress_step == 0 || n == total {
+                info!("Progress: {}/{} files ({}%)", n, total, n * 100 / total);
+            }
+
+            result
         })
         .collect();
 

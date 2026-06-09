@@ -1,14 +1,7 @@
 /**
  * @name Storage layout analysis
- * @description Analyzes storage slots, gaps, and variable layout for upgradeable contracts.
- * @kind problem
- * @problem.severity recommendation
- * @precision high
+ * @description Storage slots, gaps, and variable layout for upgradeable contracts.
  * @id solidity/storage-layout
- * @tags analysis
- *       storage
- *       upgradeable
- *       solidity
  */
 
 import codeql.solidity.ast.internal.TreeSitter
@@ -157,76 +150,46 @@ int getTypeSize(string typeStr) {
   result = 32
 }
 
-/**
- * State variable storage information.
- * Output: storage|contract|name|type|visibility|is_constant|is_immutable|size|file:line
- */
-string formatStateVariable(Solidity::StateVariableDeclaration var) {
-  exists(
-    Solidity::ContractDeclaration contract, string varName, string varType, string visibility,
-    string isConst, string isImm, int size
-  |
-    var.getParent+() = contract and
-    varName = var.getName().(Solidity::AstNode).getValue() and
-    varType = getTypeString(var) and
-    visibility = getStateVarVisibility(var) and
-    (if isConstant(var) then isConst = "true" else isConst = "false") and
-    (if isImmutable(var) then isImm = "true" else isImm = "false") and
-    size = getTypeSize(varType) and
-    result =
-      "storage|" + getContractName(contract) + "|" + varName + "|" + varType + "|" + visibility +
-        "|" + isConst + "|" + isImm + "|" + size.toString() + "|" +
-        var.getLocation().getFile().getName() + ":" + var.getLocation().getStartLine().toString()
+/** One row per state variable, with its packed size in bytes. */
+query predicate stateVariables(
+  string contract, string name, string type, string visibility, boolean isConst, boolean isImm,
+  int size, Solidity::StateVariableDeclaration node
+) {
+  exists(Solidity::ContractDeclaration c |
+    node.getParent+() = c and
+    contract = getContractName(c) and
+    name = node.getName().(Solidity::AstNode).getValue() and
+    type = getTypeString(node) and
+    visibility = getStateVarVisibility(node) and
+    (if isConstant(node) then isConst = true else isConst = false) and
+    (if isImmutable(node) then isImm = true else isImm = false) and
+    size = getTypeSize(type)
   )
 }
 
-/**
- * Detects storage gaps for upgradeability.
- * Output: gap|contract|name|type|size|file:line
- */
-string formatStorageGap(Solidity::StateVariableDeclaration var) {
-  exists(Solidity::ContractDeclaration contract, string varName, string varType |
-    var.getParent+() = contract and
-    varName = var.getName().(Solidity::AstNode).getValue() and
-    varType = getTypeString(var) and
-    (
-      varName.toLowerCase().matches("%__gap%") or
-      varName.toLowerCase().matches("%_gap%") or
-      varName.toLowerCase().matches("%gap%")
+/** Storage gaps reserved for upgradeability (`uint256[50] __gap`). */
+query predicate storageGaps(
+  string contract, string name, string type, Solidity::StateVariableDeclaration node
+) {
+  exists(Solidity::ContractDeclaration c |
+    node.getParent+() = c and
+    contract = getContractName(c) and
+    name = node.getName().(Solidity::AstNode).getValue() and
+    type = getTypeString(node) and
+    name.toLowerCase().matches("%gap%") and
+    type.matches("%[%]%")
+  )
+}
+
+/** Per-contract counts of slot-consuming, constant, and immutable variables. */
+query predicate contractStorageSummary(
+  string contract, int slotVars, int constants, int immutables, Solidity::ContractDeclaration node
+) {
+  contract = getContractName(node) and
+  slotVars =
+    count(Solidity::StateVariableDeclaration v |
+      v.getParent+() = node and not isConstant(v) and not isImmutable(v)
     ) and
-    varType.matches("%[%]%") and
-    result =
-      "gap|" + getContractName(contract) + "|" + varName + "|" + varType + "|" +
-        var.getLocation().getFile().getName() + ":" + var.getLocation().getStartLine().toString()
-  )
+  constants = count(Solidity::StateVariableDeclaration v | v.getParent+() = node and isConstant(v)) and
+  immutables = count(Solidity::StateVariableDeclaration v | v.getParent+() = node and isImmutable(v))
 }
-
-/**
- * Contract storage summary.
- * Output: summary|contract|total_vars|constant_count|immutable_count|file:line
- */
-string formatContractStorageSummary(Solidity::ContractDeclaration contract) {
-  exists(int totalVars, int constCount, int immCount |
-    totalVars =
-      count(Solidity::StateVariableDeclaration v |
-        v.getParent+() = contract and not isConstant(v) and not isImmutable(v)
-      ) and
-    constCount = count(Solidity::StateVariableDeclaration v | v.getParent+() = contract and isConstant(v)) and
-    immCount = count(Solidity::StateVariableDeclaration v | v.getParent+() = contract and isImmutable(v)) and
-    result =
-      "summary|" + getContractName(contract) + "|" + totalVars.toString() + "|" +
-        constCount.toString() + "|" + immCount.toString() + "|" +
-        contract.getLocation().getFile().getName() + ":" +
-        contract.getLocation().getStartLine().toString()
-  )
-}
-
-// Main query
-from string info
-where
-  info = formatStateVariable(_)
-  or
-  info = formatStorageGap(_)
-  or
-  info = formatContractStorageSummary(_)
-select info, info

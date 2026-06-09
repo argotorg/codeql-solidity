@@ -1,14 +1,7 @@
 /**
  * @name Reentrancy pattern analysis
- * @description Detects CEI violations using control flow reachability instead of line numbers.
- * @kind problem
- * @problem.severity error
- * @precision medium
+ * @description CEI violations found by control flow reachability instead of line numbers.
  * @id solidity/reentrancy-patterns
- * @tags analysis
- *       reentrancy
- *       security
- *       solidity
  */
 
 import codeql.solidity.ast.internal.TreeSitter
@@ -26,16 +19,25 @@ string getFunctionName(Solidity::FunctionDefinition func) {
   result = func.getName().(Solidity::AstNode).getValue()
 }
 
+/**
+ * Gets the name of a modifier invocation.
+ *
+ * `ModifierInvocation` is not a leaf token, so `getValue()` on it is empty; the
+ * name is its `Identifier` child.
+ */
+string getModifierName(Solidity::ModifierInvocation mod) {
+  exists(Solidity::Identifier id | id.getParent() = mod and result = id.getValue())
+}
+
 /** Holds if a function has a reentrancy guard modifier. */
 predicate hasReentrancyGuard(Solidity::FunctionDefinition func) {
-  exists(Solidity::ModifierInvocation mod |
-    mod.getParent() = func and
-    (
-      mod.getValue().toLowerCase().matches("%nonreentrant%") or
-      mod.getValue().toLowerCase().matches("%lock%") or
-      mod.getValue().toLowerCase().matches("%mutex%") or
-      mod.getValue().toLowerCase().matches("%guard%")
-    )
+  exists(string name |
+    name = getModifierName(any(Solidity::ModifierInvocation m | m.getParent() = func)).toLowerCase()
+  |
+    name.matches("%nonreentrant%") or
+    name.matches("%lock%") or
+    name.matches("%mutex%") or
+    name.matches("%guard%")
   )
 }
 
@@ -43,9 +45,7 @@ predicate hasReentrancyGuard(Solidity::FunctionDefinition func) {
  * Holds if `id` refers to a state variable `varName` declared in `contract`.
  */
 private predicate isStateVarIdentifier(
-  Solidity::Identifier id,
-  Solidity::ContractDeclaration contract,
-  string varName
+  Solidity::Identifier id, Solidity::ContractDeclaration contract, string varName
 ) {
   exists(Solidity::StateVariableDeclaration sv |
     sv.getParent+() = contract and
@@ -61,9 +61,7 @@ private predicate isStateVarIdentifier(
  * delete, and array push/pop.
  */
 predicate directlyModifiesState(
-  Solidity::AstNode node,
-  Solidity::ContractDeclaration contract,
-  string varName
+  Solidity::AstNode node, Solidity::ContractDeclaration contract, string varName
 ) {
   exists(Solidity::Identifier id |
     isStateVarIdentifier(id, contract, varName) and
@@ -112,9 +110,7 @@ private predicate isInternalCall(Solidity::CallExpression call) {
  * follows internal call edges via CallResolution.
  */
 predicate functionModifiesState(
-  Solidity::FunctionDefinition func,
-  Solidity::ContractDeclaration contract,
-  string varName
+  Solidity::FunctionDefinition func, Solidity::ContractDeclaration contract, string varName
 ) {
   // Base: func directly contains a state-modifying node
   exists(Solidity::AstNode mod |
@@ -132,15 +128,6 @@ predicate functionModifiesState(
 }
 
 /**
- * Holds if `stateModNode` is reachable from `callNode` via one or more CFG successor edges.
- * Uses CodeQL's built-in transitive closure which handles cycles (loops) correctly
- * and benefits from the evaluator's optimized fixpoint computation.
- */
-predicate callReachesStateMod(CfgNode callNode, CfgNode stateModNode) {
-  successor+(callNode, stateModNode)
-}
-
-/**
  * Holds if `call` is an external call (low-level, contract reference, or ether transfer).
  */
 private predicate isExternalCall(Solidity::CallExpression call) {
@@ -150,176 +137,203 @@ private predicate isExternalCall(Solidity::CallExpression call) {
 }
 
 /**
- * CEI violation: external call with a state modification reachable via CFG.
+ * Holds if `later` can execute after `earlier`, both within `func`.
  *
- * Case 1 (direct): state-modifying node in same function, reachable via CFG successor+.
- * Case 2 (interprocedural): internal call reachable after external call, where
- *   the callee (transitively) modifies state.
+ * Control flow reachability, so mutually exclusive branches are excluded and loop
+ * back edges are followed — a state write earlier in the source than the call is
+ * still reported when the loop can bring it round again.
  */
-string formatCEIViolation(Solidity::CallExpression call) {
-  isExternalCall(call) and
-  exists(Solidity::FunctionDefinition func, Solidity::ContractDeclaration contract |
+predicate executesAfter(
+  Solidity::AstNode earlier, Solidity::AstNode later, Solidity::FunctionDefinition func
+) {
+  earlier.getParent+() = func and
+  later.getParent+() = func and
+  successor+(earlier, later)
+}
+
+/**
+ * Holds if `func`, or any function it transitively calls internally, performs an
+ * external call. The mirror of `functionModifiesState`.
+ */
+predicate functionMakesExternalCall(Solidity::FunctionDefinition func) {
+  exists(Solidity::CallExpression call |
     call.getParent+() = func and
-    func.getParent+() = contract and
-    not hasReentrancyGuard(func) and
+    isExternalCall(call)
+  )
+  or
+  exists(Solidity::CallExpression internalCall, Solidity::FunctionDefinition callee |
+    internalCall.getParent+() = func and
+    isInternalCall(internalCall) and
+    CallResolution::resolveCall(internalCall, callee) and
+    functionMakesExternalCall(callee)
+  )
+}
+
+/**
+ * CEI violations where the state write sits in the same function as the call.
+ * `write` and `node` are separate entity columns, so both locations survive
+ * into the exported JSON.
+ */
+query predicate ceiViolations(
+  string contract, string function, string variable, Solidity::AstNode write,
+  Solidity::CallExpression node
+) {
+  isExternalCall(node) and
+  exists(Solidity::FunctionDefinition f, Solidity::ContractDeclaration c |
+    node.getParent+() = f and
+    f.getParent+() = c and
+    not hasReentrancyGuard(f) and
+    directlyModifiesState(write, c, variable) and
+    executesAfter(node, write, f) and
+    contract = getContractName(c) and
+    function = getFunctionName(f)
+  )
+}
+
+/**
+ * CEI violations where the state write happens inside a function called after
+ * the external call — invisible to any line-order check.
+ */
+query predicate interproceduralCeiViolations(
+  string contract, string function, string callee, string variable,
+  Solidity::CallExpression internalCall, Solidity::CallExpression node
+) {
+  isExternalCall(node) and
+  exists(
+    Solidity::FunctionDefinition f, Solidity::ContractDeclaration c,
+    Solidity::FunctionDefinition target
+  |
+    node.getParent+() = f and
+    f.getParent+() = c and
+    not hasReentrancyGuard(f) and
+    isInternalCall(internalCall) and
+    CallResolution::resolveCall(internalCall, target) and
+    executesAfter(node, internalCall, f) and
+    functionModifiesState(target, c, variable) and
+    contract = getContractName(c) and
+    function = getFunctionName(f) and
+    callee = getFunctionName(target)
+  )
+}
+
+/**
+ * CEI violations where the *external call* is hidden in a callee: `node` is an
+ * internal call whose callee reaches out, and a state write follows it.
+ */
+query predicate hiddenCallCeiViolations(
+  string contract, string function, string callee, string variable, Solidity::AstNode write,
+  Solidity::CallExpression node
+) {
+  isInternalCall(node) and
+  exists(
+    Solidity::FunctionDefinition f, Solidity::ContractDeclaration c,
+    Solidity::FunctionDefinition target
+  |
+    node.getParent+() = f and
+    f.getParent+() = c and
+    not hasReentrancyGuard(f) and
+    CallResolution::resolveCall(node, target) and
+    functionMakesExternalCall(target) and
+    directlyModifiesState(write, c, variable) and
+    executesAfter(node, write, f) and
+    contract = getContractName(c) and
+    function = getFunctionName(f) and
+    callee = getFunctionName(target)
+  )
+}
+
+/** Every external call site, and whether its function carries a reentrancy guard. */
+query predicate externalCalls(
+  string contract, string function, string callType, boolean guarded, Solidity::CallExpression node
+) {
+  isExternalCall(node) and
+  exists(Solidity::FunctionDefinition f, Solidity::ContractDeclaration c |
+    node.getParent+() = f and
+    f.getParent+() = c and
+    contract = getContractName(c) and
+    function = getFunctionName(f) and
     (
-      // Case 1: Direct state modification reachable from external call
-      exists(Solidity::AstNode mod, string varName |
-        mod.getParent+() = func and
-        directlyModifiesState(mod, contract, varName) and
-        callReachesStateMod(call, mod) and
-        result =
-          "cei_violation|" + getContractName(contract) + "|" + getFunctionName(func) + "|" +
-            call.getLocation().getStartLine().toString() + "|" +
-            mod.getLocation().getStartLine().toString() + "|" + varName
-      )
+      ExternalCalls::isDelegateCall(node) and callType = "delegatecall"
       or
-      // Case 2: Internal call after external call, callee modifies state
-      exists(Solidity::CallExpression internalCall, Solidity::FunctionDefinition callee, string varName |
-        internalCall.getParent+() = func and
-        isInternalCall(internalCall) and
-        CallResolution::resolveCall(internalCall, callee) and
-        callReachesStateMod(call, internalCall) and
-        functionModifiesState(callee, contract, varName) and
-        result =
-          "cei_violation|interprocedural|" + getContractName(contract) + "|" +
-            getFunctionName(func) + "|" + call.getLocation().getStartLine().toString() + "|" +
-            internalCall.getLocation().getStartLine().toString() + "|" +
-            getFunctionName(callee) + "|" + varName
-      )
+      ExternalCalls::isCall(node) and callType = "call"
+      or
+      ExternalCalls::isStaticCall(node) and callType = "staticcall"
+      or
+      ExternalCalls::isEtherTransfer(node) and callType = "transfer"
+      or
+      ExternalCalls::isContractReferenceCall(node) and
+      not ExternalCalls::isLowLevelCall(node) and
+      not ExternalCalls::isEtherTransfer(node) and
+      callType = "high_level"
+    ) and
+    (if hasReentrancyGuard(f) then guarded = true else guarded = false)
+  )
+}
+
+/** Every state mutation: assignment, `+=`, `++`, `delete`, `push`/`pop`. */
+query predicate stateModifications(
+  string contract, string function, string variable, Solidity::AstNode node
+) {
+  exists(Solidity::FunctionDefinition f, Solidity::ContractDeclaration c |
+    node.getParent+() = f and
+    f.getParent+() = c and
+    directlyModifiesState(node, c, variable) and
+    contract = getContractName(c) and
+    function = getFunctionName(f)
+  )
+}
+
+/** Unguarded functions that both call out and write state. */
+query predicate unguardedFunctions(
+  string contract, string function, int externalCallCount, int stateModCount,
+  Solidity::FunctionDefinition node
+) {
+  exists(Solidity::ContractDeclaration c |
+    node.getParent+() = c and
+    not hasReentrancyGuard(node) and
+    contract = getContractName(c) and
+    function = getFunctionName(node) and
+    externalCallCount =
+      count(Solidity::CallExpression call | call.getParent+() = node and isExternalCall(call)) and
+    stateModCount =
+      count(Solidity::AstNode mod | mod.getParent+() = node and directlyModifiesState(mod, c, _)) and
+    externalCallCount > 0 and
+    stateModCount > 0
+  )
+}
+
+/** Externally reachable functions whose name marks them as a reentrancy entry point. */
+query predicate callbackFunctions(
+  string contract, string function, Solidity::FunctionDefinition node
+) {
+  exists(Solidity::ContractDeclaration c |
+    node.getParent+() = c and
+    contract = getContractName(c) and
+    function = getFunctionName(node) and
+    exists(Solidity::AstNode vis |
+      vis.getParent() = node and
+      vis.toString() = "Visibility" and
+      vis.getAChild().getValue() in ["external", "public"]
+    ) and
+    (
+      function.toLowerCase().matches("%callback%") or
+      function.toLowerCase().matches("%hook%") or
+      function.toLowerCase().matches("%on%received%") or
+      function.toLowerCase().matches("%flashloan%") or
+      function.toLowerCase() in [
+          "tokensreceived", "ontokentransfer", "onerc721received", "onerc1155received",
+          "uniswapv2call", "uniswapv3swapcallback"
+        ]
     )
   )
 }
 
-/**
- * External call detection.
- */
-string formatExternalCall(Solidity::CallExpression call) {
-  isExternalCall(call) and
-  exists(
-    Solidity::FunctionDefinition func, Solidity::ContractDeclaration contract, string callType,
-    string hasGuard
-  |
-    call.getParent+() = func and
-    func.getParent+() = contract and
-    (
-      ExternalCalls::isDelegateCall(call) and callType = "delegatecall"
-      or
-      ExternalCalls::isCall(call) and callType = "call"
-      or
-      ExternalCalls::isStaticCall(call) and callType = "staticcall"
-      or
-      ExternalCalls::isEtherTransfer(call) and callType = "transfer"
-      or
-      ExternalCalls::isContractReferenceCall(call) and
-      not ExternalCalls::isLowLevelCall(call) and
-      not ExternalCalls::isEtherTransfer(call) and
-      callType = "high_level"
-    ) and
-    (
-      if hasReentrancyGuard(func) then hasGuard = "true" else hasGuard = "false"
-    ) and
-    result =
-      "external_call|" + getContractName(contract) + "|" + getFunctionName(func) + "|" + callType +
-        "|" + hasGuard + "|" + call.getLocation().getFile().getName() + ":" +
-        call.getLocation().getStartLine().toString()
+/** `receive()` and `fallback()` functions. */
+query predicate etherReceivers(string contract, string kind, Solidity::FunctionDefinition node) {
+  exists(Solidity::ContractDeclaration c |
+    node.getParent+() = c and
+    contract = getContractName(c) and
+    kind = getFunctionName(node) and
+    kind in ["receive", "fallback"]
   )
 }
-
-/**
- * State modification detection (all mutation types).
- */
-string formatStateMod(Solidity::AstNode mod) {
-  exists(
-    Solidity::FunctionDefinition func, Solidity::ContractDeclaration contract, string varName
-  |
-    mod.getParent+() = func and
-    func.getParent+() = contract and
-    directlyModifiesState(mod, contract, varName) and
-    result =
-      "state_mod|" + getContractName(contract) + "|" + getFunctionName(func) + "|" + varName + "|" +
-        mod.getLocation().getStartLine().toString()
-  )
-}
-
-/**
- * Unguarded function with external calls and state modifications.
- */
-string formatUnguardedFunction(Solidity::FunctionDefinition func) {
-  exists(Solidity::ContractDeclaration contract, int extCalls, int stateMods |
-    func.getParent+() = contract and
-    not hasReentrancyGuard(func) and
-    extCalls = count(Solidity::CallExpression call | call.getParent+() = func and isExternalCall(call)) and
-    stateMods = count(Solidity::AstNode mod | mod.getParent+() = func and directlyModifiesState(mod, contract, _)) and
-    extCalls > 0 and
-    stateMods > 0 and
-    result =
-      "unguarded_external|" + getContractName(contract) + "|" + getFunctionName(func) + "|" +
-        extCalls.toString() + "|" + stateMods.toString() + "|" +
-        func.getLocation().getFile().getName() + ":" + func.getLocation().getStartLine().toString()
-  )
-}
-
-/**
- * Callback function detection (common reentrancy targets).
- * Only flags external/public functions — private/internal callbacks are not entry points.
- */
-string formatCallback(Solidity::FunctionDefinition func) {
-  exists(Solidity::ContractDeclaration contract, string funcName |
-    func.getParent+() = contract and
-    funcName = getFunctionName(func) and
-    // Only external/public functions are reentrancy entry points
-    exists(Solidity::AstNode vis |
-      vis = func.getAChild() and
-      vis.toString() in ["external", "public"]
-    ) and
-    (
-      funcName.toLowerCase().matches("%callback%") or
-      funcName.toLowerCase().matches("%hook%") or
-      funcName.toLowerCase().matches("%on%received%") or
-      funcName.toLowerCase() = "tokensreceived" or
-      funcName.toLowerCase() = "ontokentransfer" or
-      funcName.toLowerCase() = "onerc721received" or
-      funcName.toLowerCase() = "onerc1155received" or
-      funcName.toLowerCase() = "uniswapv2call" or
-      funcName.toLowerCase() = "uniswapv3swapcallback" or
-      funcName.toLowerCase().matches("%flashloan%")
-    ) and
-    result =
-      "callback|" + getContractName(contract) + "|" + funcName + "|" +
-        func.getLocation().getFile().getName() + ":" + func.getLocation().getStartLine().toString()
-  )
-}
-
-/**
- * Receive/fallback function detection.
- */
-string formatEthReceiver(Solidity::FunctionDefinition func) {
-  exists(Solidity::ContractDeclaration contract, string funcType |
-    func.getParent+() = contract and
-    (
-      getFunctionName(func) = "receive" and funcType = "receive"
-      or
-      getFunctionName(func) = "fallback" and funcType = "fallback"
-    ) and
-    result =
-      "eth_receiver|" + getContractName(contract) + "|" + funcType + "|" +
-        func.getLocation().getFile().getName() + ":" + func.getLocation().getStartLine().toString()
-  )
-}
-
-// Main query
-from string info
-where
-  info = formatExternalCall(_)
-  or
-  info = formatStateMod(_)
-  or
-  info = formatCEIViolation(_)
-  or
-  info = formatUnguardedFunction(_)
-  or
-  info = formatCallback(_)
-  or
-  info = formatEthReceiver(_)
-select info, info

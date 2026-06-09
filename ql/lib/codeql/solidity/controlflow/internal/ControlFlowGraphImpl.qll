@@ -14,50 +14,189 @@ private import codeql.solidity.ast.internal.TreeSitter
 private import Completion
 
 /**
+ * Holds if `id` is an identifier that names something rather than reading it, and
+ * so never executes: a declaration's name, a member expression's property (`b` in
+ * `a.b`), a type name, or the name in a modifier invocation or `emit`.
+ *
+ * Without this every such identifier was a `CfgNode` with no possible edges,
+ * which made the graph look far less connected than it is.
+ */
+private predicate namesRatherThanReads(Solidity::Identifier id) {
+  id.getParent() instanceof Solidity::Parameter or
+  id.getParent() instanceof Solidity::VariableDeclaration or
+  id.getParent() instanceof Solidity::FunctionDefinition or
+  id.getParent() instanceof Solidity::ConstructorDefinition or
+  id.getParent() instanceof Solidity::ModifierDefinition or
+  id.getParent() instanceof Solidity::ModifierInvocation or
+  id.getParent() instanceof Solidity::UserDefinedType or
+  id.getParent() instanceof Solidity::EmitStatement or
+  id = any(Solidity::MemberExpression m).getProperty() or
+  id = any(Solidity::StructFieldAssignment f).getName()
+}
+
+/**
  * A node in the control flow graph.
  */
 class CfgNode extends Solidity::AstNode {
   CfgNode() {
-    // Include all expressions and statements
-    this instanceof Solidity::Expression or
-    this instanceof Solidity::ExpressionStatement or
-    this instanceof Solidity::IfStatement or
-    this instanceof Solidity::ForStatement or
-    this instanceof Solidity::WhileStatement or
-    this instanceof Solidity::DoWhileStatement or
-    this instanceof Solidity::BlockStatement or
-    this instanceof Solidity::ReturnStatement or
-    this instanceof Solidity::BreakStatement or
-    this instanceof Solidity::ContinueStatement or
-    this instanceof Solidity::EmitStatement or
-    this instanceof Solidity::RevertStatement or
-    this instanceof Solidity::VariableDeclarationStatement or
-    this instanceof Solidity::TryStatement or
-    this instanceof Solidity::Unchecked or
-    this instanceof Solidity::AssemblyStatement or
+    // Every concrete expression kind. `Solidity::Expression` is NOT a supertype:
+    // it is the generated class for the grammar's `expression` wrapper node, which
+    // the extractor collapses, so it has zero instances. Naming it here meant no
+    // expression was ever a CFG node, and every statement's `first` came back empty.
+    this instanceof Solidity::ArrayAccess
+    or
+    this instanceof Solidity::AssignmentExpression
+    or
+    this instanceof Solidity::AugmentedAssignmentExpression
+    or
+    this instanceof Solidity::BinaryExpression
+    or
+    this instanceof Solidity::BooleanLiteral
+    or
+    this instanceof Solidity::CallExpression
+    or
+    this instanceof Solidity::False
+    or
+    this instanceof Solidity::HexStringLiteral
+    or
+    this instanceof Solidity::Identifier and not namesRatherThanReads(this)
+    or
+    this instanceof Solidity::InlineArrayExpression
+    or
+    this instanceof Solidity::MemberExpression
+    or
+    this instanceof Solidity::MetaTypeExpression
+    or
+    this instanceof Solidity::NewExpression
+    or
+    this instanceof Solidity::NumberLiteral
+    or
+    this instanceof Solidity::ParenthesizedExpression
+    or
+    this instanceof Solidity::PayableConversionExpression
+    or
+    this instanceof Solidity::StringLiteral
+    or
+    this instanceof Solidity::StructExpression
+    or
+    this instanceof Solidity::TernaryExpression
+    or
+    this instanceof Solidity::True
+    or
+    this instanceof Solidity::TupleExpression
+    or
+    this instanceof Solidity::TypeCastExpression
+    or
+    this instanceof Solidity::UnaryExpression
+    or
+    this instanceof Solidity::UpdateExpression
+    or
+    this instanceof Solidity::ExpressionStatement
+    or
+    this instanceof Solidity::IfStatement
+    or
+    this instanceof Solidity::ForStatement
+    or
+    this instanceof Solidity::WhileStatement
+    or
+    this instanceof Solidity::DoWhileStatement
+    or
+    this instanceof Solidity::BlockStatement
+    or
+    this instanceof Solidity::FunctionBody
+    or
+    this instanceof Solidity::ReturnStatement
+    or
+    this instanceof Solidity::BreakStatement
+    or
+    this instanceof Solidity::ContinueStatement
+    or
+    this instanceof Solidity::EmitStatement
+    or
+    this instanceof Solidity::RevertStatement
+    or
+    this instanceof Solidity::VariableDeclarationStatement
+    or
+    this instanceof Solidity::TryStatement
+    or
+    this instanceof Solidity::Unchecked
+    or
+    this instanceof Solidity::AssemblyStatement
+    or
     // Function entry/exit points
-    this instanceof Solidity::FunctionDefinition or
-    this instanceof Solidity::ConstructorDefinition or
-    this instanceof Solidity::ModifierDefinition or
-    this instanceof Solidity::FallbackReceiveDefinition or
+    this instanceof Solidity::FunctionDefinition
+    or
+    this instanceof Solidity::ConstructorDefinition
+    or
+    this instanceof Solidity::ModifierDefinition
+    or
+    this instanceof Solidity::FallbackReceiveDefinition
+    or
     // Yul/Assembly control flow nodes
-    this instanceof Solidity::YulBlock or
-    this instanceof Solidity::YulIfStatement or
-    this instanceof Solidity::YulForStatement or
-    this instanceof Solidity::YulSwitchStatement or
-    this instanceof Solidity::YulBreak or
-    this instanceof Solidity::YulContinue or
-    this instanceof Solidity::YulLeave or
-    this instanceof Solidity::YulAssignment or
-    this instanceof Solidity::YulVariableDeclaration or
-    this instanceof Solidity::YulFunctionCall or
-    this instanceof Solidity::YulFunctionDefinition or
-    this instanceof Solidity::YulIdentifier or
-    this instanceof Solidity::YulBoolean or
-    this instanceof Solidity::YulDecimalNumber or
-    this instanceof Solidity::YulHexNumber or
-    this instanceof Solidity::YulStringLiteral or
+    this instanceof Solidity::YulBlock
+    or
+    this instanceof Solidity::YulIfStatement
+    or
+    this instanceof Solidity::YulForStatement
+    or
+    this instanceof Solidity::YulSwitchStatement
+    or
+    this instanceof Solidity::YulBreak
+    or
+    this instanceof Solidity::YulContinue
+    or
+    this instanceof Solidity::YulLeave
+    or
+    this instanceof Solidity::YulAssignment
+    or
+    this instanceof Solidity::YulVariableDeclaration
+    or
+    this instanceof Solidity::YulFunctionCall
+    or
+    this instanceof Solidity::YulFunctionDefinition
+    or
+    this instanceof Solidity::YulIdentifier
+    or
+    this instanceof Solidity::YulBoolean
+    or
+    this instanceof Solidity::YulDecimalNumber
+    or
+    this instanceof Solidity::YulHexNumber
+    or
+    this instanceof Solidity::YulStringLiteral
+    or
     this instanceof Solidity::YulHexStringLiteral
+  }
+}
+
+/**
+ * A node that is pure syntax on an evaluation path: it wraps the expression that
+ * actually executes rather than executing itself (an argument-list entry, a
+ * `revert` argument list, a Yul path). Flow passes straight through to its
+ * semantic children, so these are deliberately not `CfgNode`s.
+ *
+ * Before the extractor populated the child relation these were invisible —
+ * `call.getChild(0)` returned nothing, so the callee flowed directly to the call
+ * and the graph happened to be connected. With real children they sit on the
+ * path and have to be traversed.
+ */
+class TransparentNode extends Solidity::AstNode {
+  TransparentNode() {
+    this instanceof Solidity::CallArgument or
+    this instanceof Solidity::RevertArguments or
+    this instanceof Solidity::YulPath
+  }
+}
+
+/**
+ * A node whose semantic children are a sequence of statements: a `{ ... }` block,
+ * or the `function_body` the grammar puts under a function or modifier
+ * definition. Both sequence identically; only their node kind differs.
+ */
+class StatementSequence extends CfgNode {
+  StatementSequence() {
+    this instanceof Solidity::BlockStatement or
+    this instanceof Solidity::FunctionBody
   }
 }
 
@@ -96,7 +235,7 @@ CfgNode first(Solidity::AstNode node) {
     node instanceof Solidity::HexStringLiteral or
     node instanceof Solidity::True or
     node instanceof Solidity::False or
-    node instanceof Solidity::Expression or  // wrapped expressions
+    node instanceof Solidity::BooleanLiteral or
     node instanceof Solidity::NewExpression or
     node instanceof Solidity::TypeCastExpression or
     node instanceof Solidity::ParenthesizedExpression or
@@ -104,59 +243,59 @@ CfgNode first(Solidity::AstNode node) {
     node instanceof Solidity::TupleExpression or
     node instanceof Solidity::StructExpression or
     node instanceof Solidity::PayableConversionExpression or
-    node instanceof Solidity::MetaTypeExpression or
-    node instanceof Solidity::UpdateExpression or
-    node instanceof Solidity::AugmentedAssignmentExpression
+    node instanceof Solidity::MetaTypeExpression
   ) and
   result = node
   or
+  // Compound assignment `a += b`: evaluate the right side first, like a plain
+  // assignment. Treating it as a leaf left its operands off the graph entirely —
+  // including the `msg.sender` read in `balances[msg.sender] -= amount`.
+  exists(Solidity::AugmentedAssignmentExpression aug | node = aug | result = first(aug.getRight()))
+  or
+  // Update expression `x++` / `--x`: evaluate the operand
+  exists(Solidity::UpdateExpression upd | node = upd | result = first(upd.getArgument()))
+  or
   // Binary expression: evaluate left first
-  exists(Solidity::BinaryExpression bin | node = bin |
-    result = first(bin.getLeft())
-  )
+  exists(Solidity::BinaryExpression bin | node = bin | result = first(bin.getLeft()))
   or
   // Unary expression: evaluate operand first
-  exists(Solidity::UnaryExpression unary | node = unary |
-    result = first(unary.getArgument())
-  )
+  exists(Solidity::UnaryExpression unary | node = unary | result = first(unary.getArgument()))
   or
   // Call expression: evaluate callee first
-  exists(Solidity::CallExpression call | node = call |
-    result = first(call.getFunction())
-  )
+  exists(Solidity::CallExpression call | node = call | result = first(call.getFunction()))
   or
   // Assignment: evaluate right side first
-  exists(Solidity::AssignmentExpression assign | node = assign |
-    result = first(assign.getRight())
-  )
+  exists(Solidity::AssignmentExpression assign | node = assign | result = first(assign.getRight()))
   or
   // Ternary: evaluate condition first (child 0 is condition)
-  exists(Solidity::TernaryExpression tern | node = tern |
-    result = first(tern.getChild(0))
-  )
+  exists(Solidity::TernaryExpression tern | node = tern | result = first(tern.getChild(0)))
   or
   // Member expression: evaluate object first
-  exists(Solidity::MemberExpression mem | node = mem |
-    result = first(mem.getObject())
-  )
+  exists(Solidity::MemberExpression mem | node = mem | result = first(mem.getObject()))
   or
   // Array access: evaluate base first
-  exists(Solidity::ArrayAccess arr | node = arr |
-    result = first(arr.getBase())
+  exists(Solidity::ArrayAccess arr | node = arr | result = first(arr.getBase()))
+  or
+  // Transparent wrapper: first node of its first semantic child
+  exists(TransparentNode t | node = t |
+    result = first(t.getChild(0))
+    or
+    not exists(t.getChild(0)) and result = first(t.getAChild())
   )
   or
-  // Block statement: first statement in block
-  exists(Solidity::BlockStatement block | node = block |
+  // Struct field initialiser `name: value` — only the value is evaluated
+  exists(Solidity::StructFieldAssignment f | node = f | result = first(f.getFieldValue()))
+  or
+  // Statement sequence (block or function body): first statement in it
+  exists(StatementSequence block | node = block |
     result = first(block.getChild(0))
     or
-    // Empty block
+    // Empty sequence
     not exists(block.getChild(0)) and result = block
   )
   or
   // If statement: evaluate condition first
-  exists(Solidity::IfStatement ifStmt | node = ifStmt |
-    result = first(ifStmt.getCondition())
-  )
+  exists(Solidity::IfStatement ifStmt | node = ifStmt | result = first(ifStmt.getCondition()))
   or
   // For statement: evaluate initializer first (if present)
   exists(Solidity::ForStatement forStmt | node = forStmt |
@@ -164,7 +303,8 @@ CfgNode first(Solidity::AstNode node) {
     or
     not exists(forStmt.getInitial()) and result = first(forStmt.getCondition())
     or
-    not exists(forStmt.getInitial()) and not exists(forStmt.getCondition()) and
+    not exists(forStmt.getInitial()) and
+    not exists(forStmt.getCondition()) and
     result = first(forStmt.getBody())
   )
   or
@@ -174,14 +314,10 @@ CfgNode first(Solidity::AstNode node) {
   )
   or
   // Do-while statement: execute body first
-  exists(Solidity::DoWhileStatement doWhile | node = doWhile |
-    result = first(doWhile.getBody())
-  )
+  exists(Solidity::DoWhileStatement doWhile | node = doWhile | result = first(doWhile.getBody()))
   or
   // Try statement: evaluate the external call first
-  exists(Solidity::TryStatement tryStmt | node = tryStmt |
-    result = first(tryStmt.getAttempt())
-  )
+  exists(Solidity::TryStatement tryStmt | node = tryStmt | result = first(tryStmt.getAttempt()))
   or
   // Expression statement: evaluate expression
   exists(Solidity::ExpressionStatement exprStmt | node = exprStmt |
@@ -202,9 +338,18 @@ CfgNode first(Solidity::AstNode node) {
     not exists(ret.getChild(0)) and result = ret
   )
   or
-  // Emit statement: evaluate event call
+  // Emit statement: the grammar hangs the event-name `Identifier` and the
+  // `CallArgument`s directly off the statement, with no nested call. The name is
+  // not evaluated, so flow starts at the first argument.
   exists(Solidity::EmitStatement emit | node = emit |
-    result = first(emit.getChild(0))
+    result =
+      first(min(Solidity::CallArgument a |
+          a.getParent() = emit
+        |
+          a order by a.getLocation().getStartColumn()
+        ))
+    or
+    not exists(Solidity::CallArgument a | a.getParent() = emit) and result = emit
   )
   or
   // Revert statement: evaluate error (if present)
@@ -237,14 +382,10 @@ CfgNode first(Solidity::AstNode node) {
   )
   or
   // Yul if statement: evaluate condition first (child 0 is condition, child 1 is body)
-  exists(Solidity::YulIfStatement yulIf | node = yulIf |
-    result = first(yulIf.getChild(0))
-  )
+  exists(Solidity::YulIfStatement yulIf | node = yulIf | result = first(yulIf.getChild(0)))
   or
   // Yul for statement: init block first (children: 0=init, 1=cond, 2=update, 3=body)
-  exists(Solidity::YulForStatement yulFor | node = yulFor |
-    result = first(yulFor.getChild(0))
-  )
+  exists(Solidity::YulForStatement yulFor | node = yulFor | result = first(yulFor.getChild(0)))
   or
   // Yul switch statement: evaluate expression first (child 0)
   exists(Solidity::YulSwitchStatement yulSwitch | node = yulSwitch |
@@ -273,9 +414,7 @@ CfgNode first(Solidity::AstNode node) {
   )
   or
   // Yul function definition: first is the body (child after name)
-  exists(Solidity::YulFunctionDefinition yulFunc | node = yulFunc |
-    result = yulFunc
-  )
+  exists(Solidity::YulFunctionDefinition yulFunc | node = yulFunc | result = yulFunc)
   or
   // Yul jump statements: they are their own first
   (
@@ -310,7 +449,7 @@ CfgNode last(Solidity::AstNode node, Completion c) {
     node instanceof Solidity::HexStringLiteral or
     node instanceof Solidity::True or
     node instanceof Solidity::False or
-    node instanceof Solidity::Expression or  // wrapped expressions
+    node instanceof Solidity::BooleanLiteral or
     node instanceof Solidity::NewExpression or
     node instanceof Solidity::TypeCastExpression or
     node instanceof Solidity::ParenthesizedExpression or
@@ -319,11 +458,23 @@ CfgNode last(Solidity::AstNode node, Completion c) {
     node instanceof Solidity::StructExpression or
     node instanceof Solidity::PayableConversionExpression or
     node instanceof Solidity::MetaTypeExpression or
-    node instanceof Solidity::UpdateExpression or
-    node instanceof Solidity::AugmentedAssignmentExpression
+    // `unchecked` extracts as a bare keyword node; the block it guards is its
+    // sibling, so it sequences as a no-op.
+    node instanceof Solidity::Unchecked or
+    node instanceof Solidity::BreakStatement or
+    node instanceof Solidity::ContinueStatement
   ) and
   c instanceof NormalCompletion and
   result = node
+  or
+  // Compound assignment and update complete with themselves
+  exists(Solidity::AugmentedAssignmentExpression aug | node = aug |
+    c instanceof NormalCompletion and result = aug
+  )
+  or
+  exists(Solidity::UpdateExpression upd | node = upd |
+    c instanceof NormalCompletion and result = upd
+  )
   or
   // Binary expression: completes with binary node itself
   exists(Solidity::BinaryExpression bin | node = bin |
@@ -358,18 +509,26 @@ CfgNode last(Solidity::AstNode node, Completion c) {
   )
   or
   // Array access: completes with array access node itself
-  exists(Solidity::ArrayAccess arr | node = arr |
-    c instanceof NormalCompletion and result = arr
+  exists(Solidity::ArrayAccess arr | node = arr | c instanceof NormalCompletion and result = arr)
+  or
+  // Transparent wrapper: last node of its last semantic child
+  exists(TransparentNode t | node = t |
+    exists(int n | n = max(int i | exists(t.getChild(i))) and result = last(t.getChild(n), c))
+    or
+    not exists(t.getChild(0)) and result = last(t.getAChild(), c)
   )
   or
-  // Block statement: last node of last statement
-  exists(Solidity::BlockStatement block | node = block |
+  // Struct field initialiser `name: value` — only the value is evaluated
+  exists(Solidity::StructFieldAssignment f | node = f | result = last(f.getFieldValue(), c))
+  or
+  // Statement sequence (block or function body): last node of last statement
+  exists(StatementSequence block | node = block |
     exists(int n |
       n = max(int i | exists(block.getChild(i))) and
       result = last(block.getChild(n), c)
     )
     or
-    // Empty block
+    // Empty sequence
     not exists(block.getChild(0)) and c instanceof NormalCompletion and result = block
   )
   or
@@ -388,7 +547,10 @@ CfgNode last(Solidity::AstNode node, Completion c) {
   // For statement: can exit via body, condition, or break
   exists(Solidity::ForStatement forStmt | node = forStmt |
     // Normal exit when condition is false
-    c instanceof NormalCompletion and result = forStmt.getCondition()
+    // Normal exit is where the condition's *evaluation* ends, not the condition
+    // node itself — for `for (...; i < n; ...)` the grammar's condition is an
+    // expression_statement, which is never on the graph.
+    result = last(forStmt.getCondition(), _) and c instanceof NormalCompletion
     or
     // Break exits the loop
     result = last(forStmt.getBody(), c) and c instanceof BreakCompletion
@@ -399,7 +561,10 @@ CfgNode last(Solidity::AstNode node, Completion c) {
   or
   // While statement: similar to for
   exists(Solidity::WhileStatement whileStmt | node = whileStmt |
-    c instanceof NormalCompletion and result = whileStmt.getCondition()
+    // Normal exit is where the condition's *evaluation* ends, not the condition
+    // node itself — for `for (...; i < n; ...)` the grammar's condition is an
+    // expression_statement, which is never on the graph.
+    result = last(whileStmt.getCondition(), _) and c instanceof NormalCompletion
     or
     result = last(whileStmt.getBody(), c) and c instanceof BreakCompletion
     or
@@ -408,7 +573,10 @@ CfgNode last(Solidity::AstNode node, Completion c) {
   or
   // Do-while statement
   exists(Solidity::DoWhileStatement doWhile | node = doWhile |
-    c instanceof NormalCompletion and result = doWhile.getCondition()
+    // Normal exit is where the condition's *evaluation* ends, not the condition
+    // node itself — for `for (...; i < n; ...)` the grammar's condition is an
+    // expression_statement, which is never on the graph.
+    result = last(doWhile.getCondition(), _) and c instanceof NormalCompletion
     or
     result = last(doWhile.getBody(), c) and c instanceof BreakCompletion
     or
@@ -447,9 +615,7 @@ CfgNode last(Solidity::AstNode node, Completion c) {
   )
   or
   // Break statement: completes with break
-  exists(Solidity::BreakStatement brk | node = brk |
-    c instanceof BreakCompletion and result = brk
-  )
+  exists(Solidity::BreakStatement brk | node = brk | c instanceof BreakCompletion and result = brk)
   or
   // Continue statement: completes with continue
   exists(Solidity::ContinueStatement cont | node = cont |
@@ -463,7 +629,7 @@ CfgNode last(Solidity::AstNode node, Completion c) {
   or
   // Emit statement: completes normally
   exists(Solidity::EmitStatement emit | node = emit |
-    c instanceof NormalCompletion and result = emit.getChild(0)
+    c instanceof NormalCompletion and result = emit
   )
   or
   // Assembly statement: completes via inner YulBlock
@@ -494,8 +660,8 @@ CfgNode last(Solidity::AstNode node, Completion c) {
   or
   // Yul for statement: condition (false), break, or abnormal exit from body
   exists(Solidity::YulForStatement yulFor | node = yulFor |
-    // Normal exit when condition is false (child 1 is condition)
-    c instanceof NormalCompletion and result = yulFor.getChild(1)
+    // Normal exit is where the condition's evaluation ends (child 1 is condition)
+    result = last(yulFor.getChild(1), _) and c instanceof NormalCompletion
     or
     // Break exits the loop
     result = last(yulFor.getChild(3), c) and c instanceof BreakCompletion
@@ -506,7 +672,7 @@ CfgNode last(Solidity::AstNode node, Completion c) {
   or
   // Yul switch statement: any case can be the last
   exists(Solidity::YulSwitchStatement yulSwitch, int i | node = yulSwitch |
-    i > 0 and  // Children after 0 are case/default blocks
+    i > 0 and // Children after 0 are case/default blocks
     result = last(yulSwitch.getChild(i), c)
   )
   or
@@ -561,9 +727,7 @@ CfgNode last(Solidity::AstNode node, Completion c) {
 /**
  * Holds if `succ` is an immediate successor of `pred` in the CFG.
  */
-predicate successor(CfgNode pred, CfgNode succ) {
-  successorWithCompletion(pred, succ, _)
-}
+predicate successor(CfgNode pred, CfgNode succ) { successorWithCompletion(pred, succ, _) }
 
 /**
  * Holds if `succ` is an immediate successor of `pred` in the CFG,
@@ -597,9 +761,7 @@ private predicate expressionSuccessor(CfgNode pred, CfgNode succ, Completion c) 
     )
     or
     // Unary expression: operand -> unary
-    exists(Solidity::UnaryExpression unary |
-      pred = last(unary.getArgument(), c) and succ = unary
-    )
+    exists(Solidity::UnaryExpression unary | pred = last(unary.getArgument(), c) and succ = unary)
     or
     // Call expression: callee -> args -> call
     // Note: arguments are stored as children of the call expression
@@ -621,6 +783,37 @@ private predicate expressionSuccessor(CfgNode pred, CfgNode succ, Completion c) 
       )
     )
     or
+    // Emit statement: arg -> arg -> emit
+    exists(Solidity::EmitStatement emit, Solidity::CallArgument a |
+      a.getParent() = emit and
+      pred = last(a, c) and
+      (
+        succ =
+          first(min(Solidity::CallArgument b |
+              b.getParent() = emit and
+              b.getLocation().getStartColumn() > a.getLocation().getStartColumn()
+            |
+              b order by b.getLocation().getStartColumn()
+            ))
+        or
+        not exists(Solidity::CallArgument b |
+          b.getParent() = emit and
+          b.getLocation().getStartColumn() > a.getLocation().getStartColumn()
+        ) and
+        succ = emit
+      )
+    )
+    or
+    // Compound assignment: right -> left -> assignment
+    exists(Solidity::AugmentedAssignmentExpression aug |
+      pred = last(aug.getRight(), c) and succ = first(aug.getLeft())
+      or
+      pred = last(aug.getLeft(), c) and succ = aug
+    )
+    or
+    // Update expression: operand -> update
+    exists(Solidity::UpdateExpression upd | pred = last(upd.getArgument(), c) and succ = upd)
+    or
     // Assignment: right -> left -> assignment
     exists(Solidity::AssignmentExpression assign |
       pred = last(assign.getRight(), c) and succ = first(assign.getLeft())
@@ -629,9 +822,7 @@ private predicate expressionSuccessor(CfgNode pred, CfgNode succ, Completion c) 
     )
     or
     // Member expression: object -> member
-    exists(Solidity::MemberExpression mem |
-      pred = last(mem.getObject(), c) and succ = mem
-    )
+    exists(Solidity::MemberExpression mem | pred = last(mem.getObject(), c) and succ = mem)
     or
     // Array access: base -> index -> access
     exists(Solidity::ArrayAccess arr |
@@ -658,8 +849,8 @@ private predicate expressionSuccessor(CfgNode pred, CfgNode succ, Completion c) 
  * Holds if there's a control flow successor between statements.
  */
 private predicate statementSuccessor(CfgNode pred, CfgNode succ, Completion c) {
-  // Sequential statements in a block
-  exists(Solidity::BlockStatement block, int i |
+  // Sequential statements in a block or function body
+  exists(StatementSequence block, int i |
     pred = last(block.getChild(i), c) and
     c instanceof NormalCompletion and
     succ = first(block.getChild(i + 1))
@@ -702,25 +893,16 @@ private predicate statementSuccessor(CfgNode pred, CfgNode succ, Completion c) {
   or
   yulExpressionSuccessor(pred, succ, c)
   or
-  // Expression statement -> expression
-  exists(Solidity::ExpressionStatement exprStmt |
-    pred = exprStmt and
-    c instanceof NormalCompletion and
-    succ = first(exprStmt.getChild(0))
-  )
-  or
-  // Variable declaration -> initializer
-  exists(Solidity::VariableDeclarationStatement varDecl |
-    pred = varDecl and
-    c instanceof NormalCompletion and
-    succ = first(varDecl.getFieldValue())
-  )
-  or
-  // Return statement -> expression
+  // Returned expression -> the return statement, which carries the completion.
+  //
+  // `expression_statement` and `variable_declaration_statement` deliberately have
+  // no rule here: `first()` descends straight into the inner expression, so the
+  // statement node is never entered and an edge out of it would start from an
+  // unreachable node. `return` is different — it is the node that completes.
   exists(Solidity::ReturnStatement ret |
-    pred = ret and
+    pred = last(ret.getChild(0), c) and
     c instanceof NormalCompletion and
-    succ = first(ret.getChild(0))
+    succ = ret
   )
 }
 
@@ -881,8 +1063,7 @@ private predicate functionEntrySuccessor(CfgNode pred, CfgNode succ, Completion 
  * Resolves a modifier invocation to its definition within the contract hierarchy.
  */
 private predicate modifierInvocationResolves(
-  Solidity::ModifierInvocation invoc,
-  Solidity::ModifierDefinition modDef
+  Solidity::ModifierInvocation invoc, Solidity::ModifierDefinition modDef
 ) {
   exists(Solidity::ContractDeclaration contract |
     invoc.getParent+() = contract and
@@ -904,8 +1085,7 @@ private predicate modifierInvocationResolves(
  * Holds if modifier invocation `a` appears before `b` in source order.
  */
 private predicate modifierSourceBefore(
-  Solidity::ModifierInvocation a,
-  Solidity::ModifierInvocation b
+  Solidity::ModifierInvocation a, Solidity::ModifierInvocation b
 ) {
   a.getParent() = b.getParent() and
   (
@@ -921,9 +1101,7 @@ private predicate modifierSourceBefore(
  * Position is determined by counting how many other resolved modifiers precede it.
  */
 private predicate nthResolvedModifier(
-  EntryNode funcLike,
-  int pos,
-  Solidity::ModifierInvocation modInvoc,
+  EntryNode funcLike, int pos, Solidity::ModifierInvocation modInvoc,
   Solidity::ModifierDefinition modDef
 ) {
   modInvoc.getParent() = funcLike and
@@ -960,10 +1138,8 @@ private predicate hasResolvedModifier(EntryNode funcLike) {
  */
 private predicate modifierReturnTarget(EntryNode funcLike, int pos, CfgNode target) {
   exists(
-    Solidity::ModifierDefinition modDef,
-    Solidity::BlockStatement modBody,
-    Solidity::AstNode placeholder,
-    int placeholderIdx
+    Solidity::ModifierDefinition modDef, Solidity::BlockStatement modBody,
+    Solidity::AstNode placeholder, int placeholderIdx
   |
     nthResolvedModifier(funcLike, pos, _, modDef) and
     modBody = modDef.getBody() and
@@ -990,10 +1166,7 @@ private predicate modifierReturnTarget(EntryNode funcLike, int pos, CfgNode targ
 private predicate modifierPlaceholderSuccessor(CfgNode pred, CfgNode succ, Completion c) {
   // Forward: `_;` in modifier at pos N → next modifier (N+1) or function body (if last)
   exists(
-    Solidity::ModifierDefinition modDef,
-    EntryNode funcLike,
-    Solidity::AstNode placeholder,
-    int pos
+    Solidity::ModifierDefinition modDef, EntryNode funcLike, Solidity::AstNode placeholder, int pos
   |
     placeholder.getParent+() = modDef and
     placeholder.(Solidity::Identifier).getValue() = "_" and
@@ -1025,12 +1198,8 @@ private predicate modifierPlaceholderSuccessor(CfgNode pred, CfgNode succ, Compl
   // Return: modifier N body completion → parent modifier's post-`_;` code
   // Only when modifier N has post-`_;` code (otherwise handled by modifierReturnTarget cascade)
   exists(
-    EntryNode funcLike,
-    Solidity::ModifierDefinition modDef,
-    Solidity::BlockStatement modBody,
-    Solidity::AstNode placeholder,
-    int placeholderIdx,
-    int pos
+    EntryNode funcLike, Solidity::ModifierDefinition modDef, Solidity::BlockStatement modBody,
+    Solidity::AstNode placeholder, int placeholderIdx, int pos
   |
     pos > 0 and
     nthResolvedModifier(funcLike, pos, _, modDef) and
@@ -1059,7 +1228,6 @@ CfgNode getAnExitNode(EntryNode entry) {
 // =============================================================================
 // Yul/Assembly Control Flow
 // =============================================================================
-
 /**
  * Yul block sequential control flow.
  */

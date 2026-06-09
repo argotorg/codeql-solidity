@@ -1,0 +1,6 @@
+- description: Alert queries only — the census queries in analysis/ have no @kind and are not interpretable.
+- queries: .
+- include:
+    kind:
+      - problem
+      - path-problem

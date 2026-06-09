@@ -1,14 +1,7 @@
 /**
  * @name External calls analysis
- * @description Analyzes external call targets and interface definitions.
- * @kind problem
- * @problem.severity recommendation
- * @precision high
+ * @description External call targets and interface definitions.
  * @id solidity/external-calls-analysis
- * @tags analysis
- *       external-calls
- *       interfaces
- *       solidity
  */
 
 import codeql.solidity.ast.internal.TreeSitter
@@ -53,218 +46,151 @@ string getFunctionVisibility(Solidity::FunctionDefinition func) {
   result = "public"
 }
 
-/**
- * Interface definition.
- * Output: interface_def|name|function_count|file:line
- */
-string formatInterfaceDefinition(Solidity::InterfaceDeclaration iface) {
-  exists(int funcCount |
-    funcCount = count(Solidity::FunctionDefinition f | f.getParent+() = iface) and
-    result =
-      "interface_def|" + getInterfaceName(iface) + "|" + funcCount.toString() + "|" +
-        iface.getLocation().getFile().getName() + ":" +
-        iface.getLocation().getStartLine().toString()
+/** Interface declarations and how many functions they declare. */
+query predicate interfaceDefinitions(
+  string name, int functionCount, Solidity::InterfaceDeclaration node
+) {
+  name = getInterfaceName(node) and
+  functionCount = count(Solidity::FunctionDefinition f | f.getParent+() = node)
+}
+
+/** Functions declared in an interface. */
+query predicate interfaceFunctions(
+  string interface, string function, string visibility, Solidity::FunctionDefinition node
+) {
+  exists(Solidity::InterfaceDeclaration i |
+    node.getParent+() = i and
+    interface = getInterfaceName(i) and
+    function = getFunctionName(node) and
+    visibility = getFunctionVisibility(node)
   )
 }
 
-/**
- * Interface function.
- * Output: interface_func|interface|function|visibility|file:line
- */
-string formatInterfaceFunction(Solidity::FunctionDefinition func) {
-  exists(Solidity::InterfaceDeclaration iface |
-    func.getParent+() = iface and
-    result =
-      "interface_func|" + getInterfaceName(iface) + "|" + getFunctionName(func) + "|" +
-        getFunctionVisibility(func) + "|" + func.getLocation().getFile().getName() + ":" +
-        func.getLocation().getStartLine().toString()
-  )
-}
-
-/**
- * High-level external call (interface call).
- * Output: high_level_call|caller_contract|caller_func|target|func_called|file:line
- */
-string formatHighLevelCall(Solidity::CallExpression call) {
-  ExternalCalls::isContractReferenceCall(call) and
+/** Interface-typed calls: `target.method(...)`. */
+query predicate highLevelCalls(
+  string contract, string function, string target, string method, Solidity::CallExpression node
+) {
+  ExternalCalls::isContractReferenceCall(node) and
   exists(
-    Solidity::FunctionDefinition callerFunc, Solidity::ContractDeclaration callerContract,
-    Solidity::MemberExpression member, string target, string funcCalled
+    Solidity::FunctionDefinition f, Solidity::ContractDeclaration c, Solidity::MemberExpression member
   |
-    call.getParent+() = callerFunc and
-    callerFunc.getParent+() = callerContract and
-    member = call.getFunction().getAChild*() and
+    node.getParent+() = f and
+    f.getParent+() = c and
+    member = node.getFunction() and
+    contract = getContractName(c) and
+    function = getFunctionName(f) and
     target = member.getObject().(Solidity::AstNode).getAChild*().(Solidity::Identifier).getValue() and
-    funcCalled = member.getProperty().(Solidity::AstNode).getValue() and
-    result =
-      "high_level_call|" + getContractName(callerContract) + "|" + getFunctionName(callerFunc) +
-        "|" + target + "|" + funcCalled + "|" + call.getLocation().getFile().getName() + ":" +
-        call.getLocation().getStartLine().toString()
+    method = member.getProperty().(Solidity::AstNode).getValue()
   )
 }
 
-/**
- * Low-level external call.
- * Output: low_level_call|caller_contract|caller_func|call_type|file:line
- */
-string formatLowLevelCall(Solidity::CallExpression call) {
-  ExternalCalls::isLowLevelCall(call) and
-  exists(
-    Solidity::FunctionDefinition callerFunc, Solidity::ContractDeclaration callerContract,
-    string callType
-  |
-    call.getParent+() = callerFunc and
-    callerFunc.getParent+() = callerContract and
+/** `call` / `delegatecall` / `staticcall` sites. */
+query predicate lowLevelCalls(
+  string contract, string function, string callType, Solidity::CallExpression node
+) {
+  ExternalCalls::isLowLevelCall(node) and
+  exists(Solidity::FunctionDefinition f, Solidity::ContractDeclaration c |
+    node.getParent+() = f and
+    f.getParent+() = c and
+    contract = getContractName(c) and
+    function = getFunctionName(f) and
     (
-      ExternalCalls::isCall(call) and callType = "call"
+      ExternalCalls::isCall(node) and callType = "call"
       or
-      ExternalCalls::isDelegateCall(call) and callType = "delegatecall"
+      ExternalCalls::isDelegateCall(node) and callType = "delegatecall"
       or
-      ExternalCalls::isStaticCall(call) and callType = "staticcall"
-    ) and
-    result =
-      "low_level_call|" + getContractName(callerContract) + "|" + getFunctionName(callerFunc) + "|" +
-        callType + "|" + call.getLocation().getFile().getName() + ":" +
-        call.getLocation().getStartLine().toString()
+      ExternalCalls::isStaticCall(node) and callType = "staticcall"
+    )
   )
 }
 
-/**
- * Ether transfer (transfer/send).
- * Output: value_transfer|caller_contract|caller_func|transfer_type|file:line
- */
-string formatEtherTransfer(Solidity::CallExpression call) {
-  ExternalCalls::isEtherTransfer(call) and
+/** `transfer` / `send` value transfers. */
+query predicate etherTransfers(
+  string contract, string function, string transferType, Solidity::CallExpression node
+) {
+  ExternalCalls::isEtherTransfer(node) and
   exists(
-    Solidity::FunctionDefinition callerFunc, Solidity::ContractDeclaration callerContract,
-    Solidity::MemberExpression member, string transferType
+    Solidity::FunctionDefinition f, Solidity::ContractDeclaration c, Solidity::MemberExpression member
   |
-    call.getParent+() = callerFunc and
-    callerFunc.getParent+() = callerContract and
-    member = call.getFunction().getAChild*() and
-    transferType = member.getProperty().(Solidity::AstNode).getValue() and
-    result =
-      "value_transfer|" + getContractName(callerContract) + "|" + getFunctionName(callerFunc) + "|" +
-        transferType + "|" + call.getLocation().getFile().getName() + ":" +
-        call.getLocation().getStartLine().toString()
+    node.getParent+() = f and
+    f.getParent+() = c and
+    member = node.getFunction() and
+    contract = getContractName(c) and
+    function = getFunctionName(f) and
+    transferType = member.getProperty().(Solidity::AstNode).getValue()
   )
 }
 
-/**
- * This.func() external self-call.
- * Output: this_call|contract|caller_func|called_func|file:line
- */
-string formatThisCall(Solidity::CallExpression call) {
-  ExternalCalls::isThisCall(call) and
-  not ExternalCalls::isLowLevelCall(call) and
+/** `this.method(...)` external self-calls. */
+query predicate thisCalls(
+  string contract, string function, string method, Solidity::CallExpression node
+) {
+  ExternalCalls::isThisCall(node) and
+  not ExternalCalls::isLowLevelCall(node) and
   exists(
-    Solidity::FunctionDefinition callerFunc, Solidity::ContractDeclaration callerContract,
-    Solidity::MemberExpression member, string calledFunc
+    Solidity::FunctionDefinition f, Solidity::ContractDeclaration c, Solidity::MemberExpression member
   |
-    call.getParent+() = callerFunc and
-    callerFunc.getParent+() = callerContract and
-    member = call.getFunction().getAChild*() and
-    calledFunc = member.getProperty().(Solidity::AstNode).getValue() and
-    result =
-      "this_call|" + getContractName(callerContract) + "|" + getFunctionName(callerFunc) + "|" +
-        calledFunc + "|" + call.getLocation().getFile().getName() + ":" +
-        call.getLocation().getStartLine().toString()
+    node.getParent+() = f and
+    f.getParent+() = c and
+    member = node.getFunction() and
+    contract = getContractName(c) and
+    function = getFunctionName(f) and
+    method = member.getProperty().(Solidity::AstNode).getValue()
   )
 }
 
-/**
- * Contract-typed state variable (potential external call target).
- * Output: external_ref|contract|var_name|var_type|file:line
- */
-string formatExternalReference(Solidity::StateVariableDeclaration var) {
-  exists(Solidity::ContractDeclaration contract, string varName, Solidity::Identifier typeId |
-    var.getParent+() = contract and
-    varName = var.getName().(Solidity::AstNode).getValue() and
-    typeId = var.getType().getAChild*() and
+/** State variables typed as another contract or interface. */
+query predicate externalReferences(
+  string contract, string variable, string type, Solidity::StateVariableDeclaration node
+) {
+  exists(Solidity::ContractDeclaration c, Solidity::Identifier typeId |
+    node.getParent+() = c and
+    typeId = node.getType().getAChild*() and
+    contract = getContractName(c) and
+    variable = node.getName().(Solidity::AstNode).getValue() and
+    type = typeId.getValue() and
     (
-      exists(Solidity::ContractDeclaration targetContract |
-        getContractName(targetContract) = typeId.getValue()
-      )
+      exists(Solidity::ContractDeclaration t | getContractName(t) = type)
       or
-      exists(Solidity::InterfaceDeclaration targetIface |
-        getInterfaceName(targetIface) = typeId.getValue()
-      )
-    ) and
-    result =
-      "external_ref|" + getContractName(contract) + "|" + varName + "|" + typeId.getValue() + "|" +
-        var.getLocation().getFile().getName() + ":" + var.getLocation().getStartLine().toString()
+      exists(Solidity::InterfaceDeclaration t | getInterfaceName(t) = type)
+    )
   )
 }
 
-/**
- * Resolved internal call (for call graph completeness).
- * Output: internal_call|caller_contract|caller_func|target_contract|target_func|call_type|file:line
- */
-string formatResolvedCall(Solidity::CallExpression call) {
+/** Calls the call-graph resolved to a definition. */
+query predicate resolvedCalls(
+  string contract, string function, string targetContract, string targetFunction,
+  Solidity::CallExpression node
+) {
   exists(
-    Solidity::FunctionDefinition callerFunc, Solidity::FunctionDefinition targetFunc,
-    Solidity::ContractDeclaration callerContract, Solidity::ContractDeclaration targetContract
+    Solidity::FunctionDefinition f, Solidity::FunctionDefinition target,
+    Solidity::ContractDeclaration c, Solidity::ContractDeclaration tc
   |
-    CallResolution::resolveCall(call, targetFunc) and
-    call.getParent+() = callerFunc and
-    callerFunc.getParent+() = callerContract and
-    targetFunc.getParent+() = targetContract and
-    result =
-      "resolved_call|" + getContractName(callerContract) + "|" + getFunctionName(callerFunc) + "|" +
-        getContractName(targetContract) + "|" + getFunctionName(targetFunc) + "|" +
-        call.getLocation().getFile().getName() + ":" +
-        call.getLocation().getStartLine().toString()
+    CallResolution::resolveCall(node, target) and
+    node.getParent+() = f and
+    f.getParent+() = c and
+    target.getParent+() = tc and
+    contract = getContractName(c) and
+    function = getFunctionName(f) and
+    targetContract = getContractName(tc) and
+    targetFunction = getFunctionName(target)
   )
 }
 
-/**
- * Unresolved call.
- * Output: unresolved_call|contract|func|target_name|file:line
- */
-string formatUnresolvedCall(Solidity::CallExpression call) {
-  CallResolution::isUnresolved(call) and
-  exists(
-    Solidity::FunctionDefinition callerFunc, Solidity::ContractDeclaration callerContract,
-    string targetName
-  |
-    call.getParent+() = callerFunc and
-    callerFunc.getParent+() = callerContract and
+/** Calls the call-graph could not resolve, with the callee name as written. */
+query predicate unresolvedCalls(
+  string contract, string function, string target, Solidity::CallExpression node
+) {
+  CallResolution::isUnresolved(node) and
+  exists(Solidity::FunctionDefinition f, Solidity::ContractDeclaration c |
+    node.getParent+() = f and
+    f.getParent+() = c and
+    contract = getContractName(c) and
+    function = getFunctionName(f) and
     (
-      exists(Solidity::Identifier id |
-        id = call.getFunction().getAChild*() and
-        targetName = id.getValue()
-      )
+      target = node.getFunction().(Solidity::Identifier).getValue()
       or
-      exists(Solidity::MemberExpression member |
-        member = call.getFunction().getAChild*() and
-        targetName = member.getProperty().(Solidity::AstNode).getValue()
-      )
-    ) and
-    result =
-      "unresolved_call|" + getContractName(callerContract) + "|" + getFunctionName(callerFunc) +
-        "|" + targetName + "|" + call.getLocation().getFile().getName() + ":" +
-        call.getLocation().getStartLine().toString()
+      target = node.getFunction().(Solidity::MemberExpression).getProperty().(Solidity::AstNode).getValue()
+    )
   )
 }
-
-// Main query
-from string info
-where
-  info = formatInterfaceDefinition(_)
-  or
-  info = formatInterfaceFunction(_)
-  or
-  info = formatHighLevelCall(_)
-  or
-  info = formatLowLevelCall(_)
-  or
-  info = formatEtherTransfer(_)
-  or
-  info = formatThisCall(_)
-  or
-  info = formatExternalReference(_)
-  or
-  info = formatResolvedCall(_)
-  or
-  info = formatUnresolvedCall(_)
-select info, info

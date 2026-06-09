@@ -1,14 +1,7 @@
 /**
  * @name External call graph extraction
- * @description Extracts external calls (low-level, delegate, interface calls).
- * @kind problem
- * @problem.severity recommendation
- * @precision high
+ * @description External calls: low-level, delegate, interface and value transfers.
  * @id solidity/external-call-graph
- * @tags analysis
- *       call-graph
- *       external-calls
- *       solidity
  */
 
 import codeql.solidity.ast.internal.TreeSitter
@@ -45,20 +38,11 @@ string getExternalCallType(ExternalCalls::ExternalCall call) {
   ExternalCalls::isEtherTransfer(call) and result = "transfer"
 }
 
-/**
- * External calls query.
- * Format: contract.function -> external_call_type (target_expression)
- */
-from
-  ExternalCalls::ExternalCall call,
-  Solidity::FunctionDefinition callerFunc,
-  Solidity::ContractDeclaration callerContract,
-  string callType
-where
-  callerFunc = call.getEnclosingFunction() and
-  callerContract = call.getEnclosingContract() and
-  callType = getExternalCallType(call)
-select call,
-  getContractName(callerContract) + "." + getFunctionName(callerFunc) + " -> [" + callType +
-    "] at " + call.getLocation().getFile().getName() + ":" +
-    call.getLocation().getStartLine().toString()
+/** One row per external call site. */
+query predicate externalCalls(
+  string contract, string function, string callType, ExternalCalls::ExternalCall node
+) {
+  contract = getContractName(node.getEnclosingContract()) and
+  function = getFunctionName(node.getEnclosingFunction()) and
+  callType = getExternalCallType(node)
+}

@@ -9,6 +9,11 @@ target/
 *.sarif
 databases/
 
+# Nix
+/result
+/result-*
+.direnv/
+
 # IDEs
 .idea/
 .vscode/
@@ -21,6 +26,22 @@ Thumbs.db
 # Build artifacts
 *.log
 
+# cargo-cyclonedx output
+/extractor/bom.json
+*.cdx.json
+
+# Generated from the tree-sitter grammar by `codeql-extractor-solidity generate`.
+# Regenerated on every build, so kept out of git to avoid churn (relation order
+# is nondeterministic). Run the build/setup steps to produce them.
+/ql/lib/solidity.dbscheme
+/ql/lib/codeql/solidity/ast/internal/TreeSitter.qll
+/extractor-pack/solidity.dbscheme
+
+# Compiled extractor binary, built from ./extractor and placed during setup.
+/extractor-pack/tools/codeql-extractor-solidity
+/extractor-pack/tools/linux64/
+/extractor-pack/tools/darwin-arm64/
+
 # Claude / AI
 .claude/
 .opencode/
@@ -28,3 +49,22 @@ plans/
 AGENTS.md
 CLAUDE.md
 release-manifest.json
+
+# Python
+__pycache__/
+
+# Example corpus (cloned third-party repos) and generated databases
+/contracts/
+/vault-db/
+
+# Sourcify parquet exports (large data, downloaded via sourcify/download_parquet.py)
+*.parquet
+*.parquet.part
+
+# Extracted Solidity sources (output of sourcify/extract_compilation.py), any depth
+sourcify/**/*.sol
+/sourcify/extracted
+
+# Test database built from tests/
+/tests-db/
+

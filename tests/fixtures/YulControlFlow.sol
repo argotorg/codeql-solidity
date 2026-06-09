@@ -158,7 +158,11 @@ contract YulControlFlow {
             let a := 1
             let b := 2
             let c := add(a, b)
-            let d, e := (10, 20)  // Multiple assignment
+            function twoVals() -> x, y {
+                x := 10
+                y := 20
+            }
+            let d, e := twoVals()  // Multiple assignment
             result := add(c, add(d, e))
         }
     }

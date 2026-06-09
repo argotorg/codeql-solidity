@@ -31,9 +31,11 @@ class FunctionDef extends Solidity::FunctionDefinition {
 
   /** Gets the visibility (public, internal, private, external). */
   string getVisibility() {
+    // The `Visibility` node is a wrapper; the actual keyword
+    // (public/external/internal/private) is the value of its child token.
     exists(Solidity::AstNode vis |
       vis = this.getAChild() and vis instanceof Solidity::Visibility |
-      solidity_tokeninfo(vis, _, result)
+      result = vis.getAChild().getValue()
     )
     or
     not exists(Solidity::AstNode vis |
@@ -64,29 +66,26 @@ class FunctionDef extends Solidity::FunctionDefinition {
     this.isPublic() or this.isExternal()
   }
 
-  /** Holds if this function is payable. */
-  predicate isPayable() {
-    exists(Solidity::AstNode mod |
-      mod = this.getAChild() |
-      solidity_tokeninfo(mod, _, "payable")
+  /**
+   * Gets the state-mutability keyword (`view`, `pure`, or `payable`) of this
+   * function. The keyword is the value of a token nested under the
+   * `StateMutability` wrapper node, which is itself a child of the function.
+   */
+  string getStateMutability() {
+    exists(Solidity::AstNode sm |
+      sm = this.getAChild() and sm instanceof Solidity::StateMutability |
+      result = sm.getAChild().getValue()
     )
   }
+
+  /** Holds if this function is payable. */
+  predicate isPayable() { this.getStateMutability() = "payable" }
 
   /** Holds if this function is view. */
-  predicate isView() {
-    exists(Solidity::AstNode mod |
-      mod = this.getAChild() |
-      solidity_tokeninfo(mod, _, "view")
-    )
-  }
+  predicate isView() { this.getStateMutability() = "view" }
 
   /** Holds if this function is pure. */
-  predicate isPure() {
-    exists(Solidity::AstNode mod |
-      mod = this.getAChild() |
-      solidity_tokeninfo(mod, _, "pure")
-    )
-  }
+  predicate isPure() { this.getStateMutability() = "pure" }
 }
 
 /**

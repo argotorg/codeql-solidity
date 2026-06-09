@@ -1,13 +1,7 @@
 /**
  * @name Function list with metadata
- * @description Lists all functions with visibility, modifiers, and state access info.
- * @kind problem
- * @problem.severity recommendation
- * @precision high
+ * @description Every function with visibility, modifiers, and state access counts.
  * @id solidity/function-list
- * @tags analysis
- *       functions
- *       solidity
  */
 
 import codeql.solidity.ast.internal.TreeSitter
@@ -63,13 +57,16 @@ string getFunctionMutability(Solidity::FunctionDefinition func) {
 
 /**
  * Gets modifiers applied to a function as comma-separated string.
+ *
+ * `ModifierInvocation` is not a leaf token, so its name is the `Identifier`
+ * child, not `getValue()`.
  */
 string getFunctionModifiers(Solidity::FunctionDefinition func) {
   result =
-    concat(Solidity::ModifierInvocation mod |
-      mod.getParent() = func
+    concat(Solidity::ModifierInvocation mod, Solidity::Identifier id |
+      mod.getParent() = func and id.getParent() = mod
     |
-      mod.getValue(), ","
+      id.getValue(), ","
     )
   or
   not exists(Solidity::ModifierInvocation mod | mod.getParent() = func) and
@@ -92,18 +89,6 @@ predicate isConstructor(Solidity::FunctionDefinition func) {
   exists(Solidity::AstNode node |
     node.getParent() = func and
     node.getValue() = "constructor"
-  )
-}
-
-/**
- * Holds if function is a fallback or receive function.
- */
-predicate isFallbackOrReceive(Solidity::FunctionDefinition func) {
-  getFunctionName(func) in ["fallback", "receive"]
-  or
-  exists(Solidity::AstNode node |
-    node.getParent() = func and
-    node.getValue() in ["fallback", "receive"]
   )
 }
 
@@ -148,51 +133,37 @@ int getStateWrites(Solidity::FunctionDefinition func) {
     )
 }
 
-/**
- * Main function information.
- * Output: function|contract|name|visibility|mutability|modifiers|params|state_reads|state_writes|is_entry|is_constructor|file:line
- */
-string formatFunction(Solidity::FunctionDefinition func) {
-  exists(
-    Solidity::ContractDeclaration contract, string visibility, string mutability, string modifiers,
-    int params, int reads, int writes, string isEntry, string isCtor
-  |
-    func.getParent+() = contract and
-    visibility = getFunctionVisibility(func) and
-    mutability = getFunctionMutability(func) and
-    modifiers = getFunctionModifiers(func) and
-    params = getParameterCount(func) and
-    reads = getStateReads(func) and
-    writes = getStateWrites(func) and
-    (if isEntryPoint(func) then isEntry = "true" else isEntry = "false") and
-    (if isConstructor(func) then isCtor = "true" else isCtor = "false") and
-    result =
-      "function|" + getContractName(contract) + "|" + getFunctionName(func) + "|" + visibility +
-        "|" + mutability + "|" + modifiers + "|" + params.toString() + "|" + reads.toString() + "|" +
-        writes.toString() + "|" + isEntry + "|" + isCtor + "|" +
-        func.getLocation().getFile().getName() + ":" + func.getLocation().getStartLine().toString()
+/** Every function declared in a contract, with its state access profile. */
+query predicate functions(
+  string contract, string name, string visibility, string mutability, string modifiers, int params,
+  int stateReads, int stateWrites, boolean isEntryPoint, boolean isConstructor,
+  Solidity::FunctionDefinition node
+) {
+  exists(Solidity::ContractDeclaration c |
+    node.getParent+() = c and
+    contract = getContractName(c) and
+    name = getFunctionName(node) and
+    visibility = getFunctionVisibility(node) and
+    mutability = getFunctionMutability(node) and
+    modifiers = getFunctionModifiers(node) and
+    params = getParameterCount(node) and
+    stateReads = getStateReads(node) and
+    stateWrites = getStateWrites(node) and
+    (if isEntryPoint(node) then isEntryPoint = true else isEntryPoint = false) and
+    (if isConstructor(node) then isConstructor = true else isConstructor = false)
   )
 }
 
-/**
- * Interface function information.
- */
-string formatInterfaceFunction(Solidity::FunctionDefinition func) {
-  exists(Solidity::InterfaceDeclaration iface, string visibility, string mutability |
-    func.getParent+() = iface and
-    visibility = getFunctionVisibility(func) and
-    mutability = getFunctionMutability(func) and
-    result =
-      "interface_func|" + iface.getName().(Solidity::AstNode).getValue() + "|" +
-        getFunctionName(func) + "|" + visibility + "|" + mutability + "|" +
-        func.getLocation().getFile().getName() + ":" + func.getLocation().getStartLine().toString()
+/** Every function declared in an interface. */
+query predicate interfaceFunctions(
+  string interface, string name, string visibility, string mutability,
+  Solidity::FunctionDefinition node
+) {
+  exists(Solidity::InterfaceDeclaration i |
+    node.getParent+() = i and
+    interface = i.getName().(Solidity::AstNode).getValue() and
+    name = getFunctionName(node) and
+    visibility = getFunctionVisibility(node) and
+    mutability = getFunctionMutability(node)
   )
 }
-
-// Main query
-from string info
-where
-  info = formatFunction(_)
-  or
-  info = formatInterfaceFunction(_)
-select info, info

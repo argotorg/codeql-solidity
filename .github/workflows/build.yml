@@ -1,0 +1,99 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build-and-test:
+    name: Build extractor & smoke-test pipeline
+    runs-on: ubuntu-latest
+    # Rust and the CodeQL CLI come from the dev shell; flake.lock pins both.
+    defaults:
+      run:
+        shell: nix develop --command bash -e {0}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Free disk space
+        # nixpkgs' codeql is unfree, so it isn't in the binary cache and CI has to
+        # build it: ~5 GB of unpacked bundle, twice (src + $out). The runner's 21 GB
+        # root disk, where /nix lives, doesn't fit that without this.
+        shell: bash
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup
+          df -h /
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: extractor
+
+      - name: Build extractor, generate dbscheme & QL library
+        # These are .gitignore'd build artifacts, so they must be produced here
+        # before any query can compile or any database can be finalized.
+        run: setup-extractor
+
+      - name: Prepare sample contract
+        run: |
+          mkdir -p sample-src
+          cat > sample-src/Vault.sol <<'SOL'
+          // SPDX-License-Identifier: MIT
+          pragma solidity ^0.8.0;
+          contract Vault {
+              mapping(address => uint) public balances;
+              function withdraw() public {
+                  uint amount = balances[msg.sender];
+                  (bool ok, ) = msg.sender.call{value: amount}("");
+                  require(ok);
+                  balances[msg.sender] = 0;
+              }
+          }
+          SOL
+
+      - name: Run the analysis pipeline
+        # Exercises the path users take: database create -> run-queries -> JSON.
+        # run-queries does not interpret query metadata, so the census queries in
+        # analysis/ need no @kind and keep their real columns.
+        run: |
+          codeql database create ci-out/db --language=solidity \
+            --source-root=sample-src --search-path="$PWD"
+          codeql dataset measure -j"$(nproc)" \
+            -o ci-out/db/db-solidity/solidity.dbscheme.stats ci-out/db/db-solidity
+          codeql database run-queries ci-out/db "$PWD/queries" \
+            --additional-packs="$PWD" --threads=0 --rerun
+          find ci-out/db/results -name '*.bqrs' | while read -r bqrs; do
+            codeql bqrs decode --format=json --entities=url,string "$bqrs" \
+              > "ci-out/$(basename "$bqrs" .bqrs).json"
+          done
+
+      - name: Analyze alert queries
+        # Only the @kind problem queries are interpretable; the suite selects them.
+        run: |
+          codeql database analyze ci-out/db "$PWD/queries/codeql-suites/solidity-alerts.qls" \
+            --format=sarif-latest \
+            --output=results.sarif \
+            --additional-packs="$PWD" \
+            --threads=0
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sample-results
+          path: |
+            ci-out/*.json
+            results.sarif
+          if-no-files-found: warn

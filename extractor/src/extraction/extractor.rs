@@ -5,8 +5,10 @@
 
 use anyhow::{Context, Result};
 use std::path::Path;
+use tracing::warn;
 use tree_sitter::{Node, Parser, Tree};
 
+use crate::extraction::constfold;
 use crate::trap::{Compression, Label, TrapValue, TrapWriter};
 
 /// Extractor for a single Solidity file.
@@ -17,6 +19,9 @@ pub struct Extractor {
     trap: TrapWriter,
     /// File label in the database
     file_label: Option<Label>,
+    /// Count of tree-sitter ERROR/MISSING nodes dropped during this file's
+    /// extraction (i.e. the file did not parse cleanly under the grammar).
+    error_nodes_dropped: usize,
 }
 
 impl Extractor {
@@ -26,6 +31,7 @@ impl Extractor {
             file_path: file_path.to_string(),
             trap: TrapWriter::new(file_path),
             file_label: None,
+            error_nodes_dropped: 0,
         }
     }
 
@@ -51,6 +57,15 @@ impl Extractor {
 
         // Extract AST
         self.extract_tree(&tree, source)?;
+
+        // Surface files that did not parse cleanly: their ERROR/MISSING subtrees
+        // were dropped, so extraction is partial for this file.
+        if self.error_nodes_dropped > 0 {
+            warn!(
+                "{}: dropped {} unparseable AST node(s) (ERROR/MISSING); extraction is partial",
+                self.file_path, self.error_nodes_dropped
+            );
+        }
 
         Ok(())
     }
@@ -114,17 +129,37 @@ impl Extractor {
     /// Extract the parse tree to TRAP.
     fn extract_tree(&mut self, tree: &Tree, source: &str) -> Result<()> {
         let root = tree.root_node();
+        // Result ignored: returns None if the root itself is an ERROR node (a
+        // catastrophically unparseable file), in which case nothing is emitted.
         self.extract_node(root, source, None)?;
         Ok(())
     }
 
     /// Extract a single node and its children recursively.
+    ///
+    /// Returns `None` if the node is a tree-sitter synthetic ERROR / MISSING node
+    /// (and is therefore skipped along with its whole subtree), otherwise
+    /// `Some(label)` for the emitted node.
     fn extract_node(
         &mut self,
         node: Node,
         source: &str,
         parent_info: Option<(Label, usize)>,
-    ) -> Result<Label> {
+    ) -> Result<Option<Label>> {
+        // Never emit tree-sitter's synthetic ERROR / zero-width MISSING nodes.
+        // Their kind is "ERROR", which normalize_kind lowercases to "error" and
+        // emits as `solidity_error_def` — a relation absent from the dbscheme
+        // (generated from the grammar's node-types.json, which has no synthetic
+        // ERROR node), which aborts the entire TRAP import. They can appear
+        // anywhere, including as the parse-tree ROOT of a badly-broken file (which
+        // bypasses the child loop below), so the guard lives here in the single
+        // path every node flows through. Dropping the node drops its whole subtree;
+        // the rest of the file still extracts.
+        if node.is_error() || node.is_missing() {
+            self.error_nodes_dropped += 1;
+            return Ok(None);
+        }
+
         // Generate label for this node
         let label = self.trap.fresh_label();
 
@@ -167,10 +202,18 @@ impl Extractor {
             self.emit_token_info(&label, kind_id as u32, text)?;
         }
 
+        // Emit the folded constant value for literal arithmetic expressions, so
+        // queries can compare values (e.g. a `layout at <expr>` slot base) without
+        // re-implementing 256-bit arithmetic in QL. `node` is already the
+        // wrapper-resolved node, so `label` is exactly what queries observe.
+        if let Some(value) = constfold::fold(node, source) {
+            self.emit_const_value(&label, &value.to_string())?;
+        }
+
         // Process all children and emit field relationships
         self.extract_children_and_fields(&label, node, source)?;
 
-        Ok(label)
+        Ok(Some(label))
     }
 
     /// Extract all children and emit field relationships.
@@ -182,15 +225,39 @@ impl Extractor {
     ) -> Result<()> {
         use std::collections::HashMap;
         let mut field_indices: HashMap<String, usize> = HashMap::new();
+        // Sequence number for `solidity_ast_node_child`, which holds only the
+        // semantic children: named, non-extra, and not already reachable through a
+        // field accessor.
+        let mut child_seq: usize = 0;
 
         let mut cursor = node.walk();
 
         for (child_index, child) in node.children(&mut cursor).enumerate() {
-            // Extract the child
-            let child_label =
-                self.extract_node(child, source, Some((parent_label.clone(), child_index)))?;
+            // Collapse generic `expression` wrapper nodes: the tree-sitter grammar
+            // wraps every expression in an `expression` choice node, so e.g.
+            // `call_expression.function` points at a wrapper rather than the real
+            // callee. Skip the wrapper and attach its inner node directly, keeping
+            // the wrapper's position (`child_index`) and field name so parent/field
+            // relations point at the real expression. See `resolve_wrapper`.
+            let child = resolve_wrapper(child);
 
-            // If this child has a field name, emit the field relationship
+            // Extract the child. `extract_node` returns None for ERROR / MISSING
+            // nodes (see its guard); skip those entirely so no field relation
+            // points at a dropped node.
+            let child_label = match self.extract_node(
+                child,
+                source,
+                Some((parent_label.clone(), child_index)),
+            )? {
+                Some(label) => label,
+                None => continue,
+            };
+
+            // If this child has a field name, emit the field relationship.
+            // Otherwise it is a generic child: record it in the child relation so
+            // `getChild(i)` indexes the semantic children in source order.
+            // Anonymous tokens (`{`, `;`, keywords) are unnamed and extras
+            // (comments) are `is_extra`, so neither takes up an index.
             if let Some(field_name) = node.field_name_for_child(child_index as u32) {
                 let field_idx = *field_indices.get(field_name).unwrap_or(&0);
                 field_indices.insert(field_name.to_string(), field_idx + 1);
@@ -206,6 +273,16 @@ impl Extractor {
                         TrapValue::Label(child_label),
                     ],
                 );
+            } else if child.is_named() && !child.is_extra() {
+                self.trap.emit(
+                    "solidity_ast_node_child",
+                    vec![
+                        TrapValue::Label(parent_label.clone()),
+                        TrapValue::UInt(child_seq as u64),
+                        TrapValue::Label(child_label),
+                    ],
+                );
+                child_seq += 1;
             }
         }
 
@@ -260,6 +337,45 @@ impl Extractor {
         );
         Ok(())
     }
+
+    /// Emit the folded constant value of an expression node, as a decimal string.
+    fn emit_const_value(&mut self, label: &Label, value: &str) -> Result<()> {
+        self.trap.emit(
+            "solidity_const_value",
+            vec![
+                TrapValue::Label(label.clone()),
+                TrapValue::String(value.to_string()),
+            ],
+        );
+        Ok(())
+    }
+}
+
+/// Holds if `node` is a transparent single-child wrapper that should be
+/// collapsed during extraction.
+///
+/// The pinned tree-sitter-solidity grammar exposes `expression` and `statement`
+/// as visible choice rules (they are not tree-sitter supertypes), so every
+/// expression sits inside a generic `expression` node and every statement inside
+/// a generic `statement` node, each with exactly one child. Those wrappers carry
+/// no information of their own and break naive AST queries (`getFunction()`,
+/// `getLeft()`, argument access, block statement lists, ...), so we drop them and
+/// promote the child. Only these two kinds are collapsed, and only when they have
+/// exactly one child, so re-parenting cannot collide on `#keyset[parent, index]`.
+fn is_collapsible_wrapper(node: &Node) -> bool {
+    node.is_named() && matches!(node.kind(), "expression" | "statement") && node.child_count() == 1
+}
+
+/// Follows a chain of collapsible wrappers down to the first meaningful node.
+fn resolve_wrapper(node: Node) -> Node {
+    let mut current = node;
+    while is_collapsible_wrapper(&current) {
+        // Safe: `is_collapsible_wrapper` guarantees exactly one child.
+        current = current
+            .child(0)
+            .expect("wrapper guaranteed to have one child");
+    }
+    current
 }
 
 /// Normalize a tree-sitter kind name for use in table names.

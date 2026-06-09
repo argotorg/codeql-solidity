@@ -164,7 +164,9 @@ Base AST types generated from tree-sitter grammar.
 | `isInternalCall(call)` | Call is internal (not external/this/transfer) |
 | `isExternalCall(call)` | Call crosses contract boundary |
 | `isStateVarIdentifier(id, contract, varName)` | Identifier refers to state variable |
-| `callReachesStateMod(callNode, modNode)` | CFG reachability via `successor+` |
+| `executesAfter(earlier, later, func)` | CFG reachability (`successor+`) within `func` |
+| `functionMakesExternalCall(func)` | Function transitively performs an external call |
+| `getModifierName(mod)` | Modifier name — the `Identifier` child, not `getValue()` |
 | `hasReentrancyGuard(func)` | Function has reentrancy guard modifier |
 
 ## Query Metadata Reference

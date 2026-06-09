@@ -1,13 +1,7 @@
 /**
  * @name Call graph extraction
- * @description Extracts call graph data showing caller to callee relationships.
- * @kind problem
- * @problem.severity recommendation
- * @precision high
+ * @description Caller to callee edges for every call the resolver can resolve.
  * @id solidity/call-graph
- * @tags analysis
- *       call-graph
- *       solidity
  */
 
 import codeql.solidity.ast.internal.TreeSitter
@@ -60,49 +54,19 @@ string getCallType(Solidity::CallExpression call, Solidity::FunctionDefinition t
 }
 
 /**
- * Formats the target info based on call type.
- * For inherited/super calls, explicitly shows "inherited from BaseContract".
+ * One row per resolved call edge. `caller` and `target` are entity columns, so
+ * the exported JSON carries the definition sites alongside the call site.
  */
-bindingset[callType]
-string formatTarget(
-  Solidity::FunctionDefinition targetFunc,
-  Solidity::ContractDeclaration targetContract,
-  string callType
+query predicate calls(
+  string callerContract, string callerFunction, string targetContract, string targetFunction,
+  string callType, Solidity::FunctionDefinition caller, Solidity::FunctionDefinition target,
+  Solidity::CallExpression node
 ) {
-  // For inherited or super calls, show "inherited from BaseContract"
-  (callType = "inherited" or callType = "super") and
-  result =
-    getFunctionName(targetFunc) + " (inherited from " + getContractName(targetContract) + " at " +
-      targetFunc.getLocation().getFile().getName() + ":" +
-      targetFunc.getLocation().getStartLine().toString() + ")"
-  or
-  // For other calls, show standard format
-  not (callType = "inherited" or callType = "super") and
-  result =
-    getContractName(targetContract) + "." + getFunctionName(targetFunc) + " (" +
-      targetFunc.getLocation().getFile().getName() + ":" +
-      targetFunc.getLocation().getStartLine().toString() + ")"
+  CallResolution::resolveCall(node, target) and
+  caller = getEnclosingFunction(node) and
+  callerContract = getContractName(getEnclosingContract(caller)) and
+  callerFunction = getFunctionName(caller) and
+  targetContract = getContractName(getEnclosingContract(target)) and
+  targetFunction = getFunctionName(target) and
+  callType = getCallType(node, target)
 }
-
-/**
- * Main query: resolved calls with full context.
- * Output format: callerContract.callerFunc -> targetContract.targetFunc (callType)
- */
-from
-  Solidity::CallExpression call,
-  Solidity::FunctionDefinition callerFunc,
-  Solidity::FunctionDefinition targetFunc,
-  Solidity::ContractDeclaration callerContract,
-  Solidity::ContractDeclaration targetContract,
-  string callType
-where
-  CallResolution::resolveCall(call, targetFunc) and
-  callerFunc = getEnclosingFunction(call) and
-  callerContract = getEnclosingContract(callerFunc) and
-  targetContract = getEnclosingContract(targetFunc) and
-  callType = getCallType(call, targetFunc)
-select call,
-  getContractName(callerContract) + "." + getFunctionName(callerFunc) + " (" +
-    callerFunc.getLocation().getFile().getName() + ":" +
-    callerFunc.getLocation().getStartLine().toString() + ") -> " +
-    formatTarget(targetFunc, targetContract, callType) + " [" + callType + "]"

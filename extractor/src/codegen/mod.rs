@@ -4,7 +4,9 @@
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use std::collections::HashMap;
+// BTreeMap, not HashMap: see the note in schema/mod.rs — generated output must
+// be byte-stable across runs.
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
@@ -15,7 +17,7 @@ struct NodeType {
     type_name: String,
     named: bool,
     #[serde(default)]
-    fields: HashMap<String, FieldInfo>,
+    fields: BTreeMap<String, FieldInfo>,
     #[serde(default)]
     children: Option<ChildInfo>,
     #[serde(default)]
@@ -33,7 +35,8 @@ struct FieldInfo {
 
 #[derive(Debug, Deserialize)]
 struct ChildInfo {
-    multiple: bool,
+    #[serde(rename = "multiple")]
+    _multiple: bool,
     #[serde(rename = "required")]
     _required: bool,
     #[serde(rename = "types")]
@@ -118,6 +121,12 @@ class File extends @file {
 
     /** Gets a string representation */
     string toString() { result = this.getName() }
+
+    /** Holds if this file is at `filepath`. */
+    predicate hasLocationInfo(string filepath, int startline, int startcolumn, int endline, int endcolumn) {
+        filepath = this.getName() and
+        startline = 0 and startcolumn = 0 and endline = 0 and endcolumn = 0
+    }
 }
 
 /** A source location */
@@ -140,6 +149,18 @@ class Location extends @location_default {
     /** Gets a string representation */
     string toString() {
         result = this.getFile().getName() + ":" + this.getStartLine().toString()
+    }
+
+    /**
+     * Holds if this location spans the given lines and columns of `filepath`.
+     * `codeql database analyze` drops any alert whose entity does not resolve
+     * through this predicate, so every selectable class needs it.
+     */
+    predicate hasLocationInfo(string filepath, int startline, int startcolumn, int endline, int endcolumn) {
+        exists(File f |
+            locations_default(this, f, startline, startcolumn, endline, endcolumn) and
+            filepath = f.getName()
+        )
     }
 }
 
@@ -168,6 +189,17 @@ fn generate_base_class() -> String {
             solidity_tokeninfo(this, _, result)
         }
 
+        /**
+         * Gets the folded compile-time integer value of this expression, as a
+         * canonical decimal string, if it is a constant literal-arithmetic
+         * expression. Values may exceed 64 bits (e.g. a `layout at` slot base near
+         * 2**256), hence the string representation. Use `BigIntComparison` (in the
+         * AST library) to compare such values numerically.
+         */
+        string getConstantValue() {
+            solidity_const_value(this, result)
+        }
+
         /** Gets the parent of this node, if any */
         AstNode getParent() {
             solidity_ast_node_parent(this, result, _)
@@ -183,9 +215,16 @@ fn generate_base_class() -> String {
             solidity_ast_node_parent(result, this, _)
         }
 
-        /** Gets the i-th child of this node */
+        /**
+         * Gets the i-th semantic child of this node.
+         *
+         * Semantic children are the named, non-extra children that are not
+         * reachable through a field accessor, numbered contiguously in source
+         * order — so index 0 of a block is its first statement, not its `{`.
+         * Use `getParentIndex()` for a node's raw position among all children.
+         */
         AstNode getChild(int i) {
-            solidity_ast_node_parent(result, this, i)
+            solidity_ast_node_child(this, i, result)
         }
 
         /** Gets the number of children */
@@ -208,6 +247,11 @@ fn generate_base_class() -> String {
         /** Gets the file containing this node */
         File getFile() {
             result = this.getLocation().getFile()
+        }
+
+        /** Holds if this node is at the given position in `filepath`. */
+        predicate hasLocationInfo(string filepath, int startline, int startcolumn, int endline, int endcolumn) {
+            this.getLocation().hasLocationInfo(filepath, startline, startcolumn, endline, endcolumn)
         }
     }
 
@@ -247,11 +291,6 @@ fn generate_node_class(node: &NodeType) -> String {
             field_name,
             field_info,
         ));
-    }
-
-    // Generate child accessor if has generic children
-    if let Some(children) = &node.children {
-        class.push_str(&generate_child_accessor(&node.type_name, children));
     }
 
     // Override getAFieldOrChild
@@ -296,21 +335,6 @@ fn generate_field_accessor(node_type: &str, field_name: &str, field_info: &Field
             getter = getter_name,
             table = table
         )
-    }
-}
-
-/// Generate accessor for generic children.
-fn generate_child_accessor(node_type: &str, children: &ChildInfo) -> String {
-    let node_normalized = normalize_name(node_type);
-    let table = format!("solidity_{}_child", node_normalized);
-
-    if children.multiple {
-        format!(
-            "        /** Gets the child at index `i` */\n        override AstNode getChild(int i) {{ {table}(this, i, result) }}\n\n",
-            table = table
-        )
-    } else {
-        String::new()
     }
 }
 

@@ -1,14 +1,7 @@
 /**
  * @name Proxy pattern analysis
- * @description Analyzes library usage, delegatecalls, and proxy patterns.
- * @kind problem
- * @problem.severity recommendation
- * @precision high
+ * @description Library usage, delegatecalls, and proxy patterns.
  * @id solidity/proxy-patterns
- * @tags analysis
- *       proxy
- *       upgradeable
- *       solidity
  */
 
 import codeql.solidity.ast.internal.TreeSitter
@@ -36,192 +29,122 @@ string getFunctionName(Solidity::FunctionDefinition func) {
   result = func.getName().(Solidity::AstNode).getValue()
 }
 
-/**
- * Gets the interface name.
- */
-string getInterfaceName(Solidity::InterfaceDeclaration iface) {
-  result = iface.getName().(Solidity::AstNode).getValue()
-}
-
-/**
- * Detects using-for directives.
- * Output: using_for|contract|library|applied_to|file:line
- */
-string formatUsingFor(Solidity::UsingDirective using) {
-  exists(Solidity::ContractDeclaration contract, string libName, string appliedTo |
-    using.getParent+() = contract and
+/** `using L for T` directives. `appliedTo` is `*` when the directive is unrestricted. */
+query predicate usingForDirectives(
+  string contract, string library, string appliedTo, Solidity::UsingDirective node
+) {
+  exists(Solidity::ContractDeclaration c |
+    node.getParent+() = c and
+    contract = getContractName(c) and
     (
-      exists(Solidity::Identifier libId |
-        libId.getParent+() = using and
-        libName = libId.getValue()
-      )
+      exists(Solidity::Identifier libId | libId.getParent+() = node and library = libId.getValue())
       or
-      not exists(Solidity::Identifier libId | libId.getParent+() = using) and
-      libName = "unknown"
+      not exists(Solidity::Identifier libId | libId.getParent+() = node) and library = "unknown"
     ) and
     (
       exists(Solidity::AstNode typeNode |
-        typeNode.getParent() = using and
+        typeNode.getParent() = node and
         typeNode.toString() != "Identifier" and
         appliedTo = typeNode.toString()
       )
       or
       not exists(Solidity::AstNode typeNode |
-        typeNode.getParent() = using and
+        typeNode.getParent() = node and
         typeNode.toString() != "Identifier"
       ) and
       appliedTo = "*"
-    ) and
-    result =
-      "using_for|" + getContractName(contract) + "|" + libName + "|" + appliedTo + "|" +
-        using.getLocation().getFile().getName() + ":" +
-        using.getLocation().getStartLine().toString()
+    )
   )
 }
 
-/**
- * Detects library definitions.
- * Output: library|name|function_count|file:line
- */
-string formatLibrary(Solidity::LibraryDeclaration lib) {
-  exists(int funcCount |
-    funcCount = count(Solidity::FunctionDefinition f | f.getParent+() = lib) and
-    result =
-      "library|" + getLibraryName(lib) + "|" + funcCount.toString() + "|" +
-        lib.getLocation().getFile().getName() + ":" + lib.getLocation().getStartLine().toString()
+/** Library definitions and how many functions they declare. */
+query predicate libraries(string name, int functionCount, Solidity::LibraryDeclaration node) {
+  name = getLibraryName(node) and
+  functionCount = count(Solidity::FunctionDefinition f | f.getParent+() = node)
+}
+
+/** `delegatecall` sites. */
+query predicate delegatecalls(
+  string contract, string function, Solidity::CallExpression node
+) {
+  ExternalCalls::isDelegateCall(node) and
+  exists(Solidity::FunctionDefinition f, Solidity::ContractDeclaration c |
+    node.getParent+() = f and
+    f.getParent+() = c and
+    contract = getContractName(c) and
+    function = getFunctionName(f)
   )
 }
 
-/**
- * Detects delegatecall operations.
- * Output: delegatecall|contract|function|file:line
- */
-string formatDelegatecall(Solidity::CallExpression call) {
-  ExternalCalls::isDelegateCall(call) and
-  exists(Solidity::FunctionDefinition func, Solidity::ContractDeclaration contract |
-    call.getParent+() = func and
-    func.getParent+() = contract and
-    result =
-      "delegatecall|" + getContractName(contract) + "|" + getFunctionName(func) + "|" +
-        call.getLocation().getFile().getName() + ":" +
-        call.getLocation().getStartLine().toString()
-  )
-}
-
-/**
- * Detects implementation address state variables.
- * Output: impl_slot|contract|variable|type|file:line
- */
-string formatImplementationSlot(Solidity::StateVariableDeclaration var) {
-  exists(Solidity::ContractDeclaration contract, string varName, string varType |
-    var.getParent+() = contract and
-    varName = var.getName().(Solidity::AstNode).getValue() and
-    varType = var.getType().(Solidity::AstNode).toString() and
+/** Address-typed state variables named like an implementation pointer. */
+query predicate implementationSlots(
+  string contract, string variable, string type, Solidity::StateVariableDeclaration node
+) {
+  exists(Solidity::ContractDeclaration c |
+    node.getParent+() = c and
+    contract = getContractName(c) and
+    variable = node.getName().(Solidity::AstNode).getValue() and
+    type = node.getType().(Solidity::AstNode).toString() and
     (
-      varName.toLowerCase().matches("%implementation%") or
-      varName.toLowerCase().matches("%logic%") or
-      varName.toLowerCase().matches("%target%") or
-      varName.toLowerCase().matches("%beacon%")
+      variable.toLowerCase().matches("%implementation%") or
+      variable.toLowerCase().matches("%logic%") or
+      variable.toLowerCase().matches("%target%") or
+      variable.toLowerCase().matches("%beacon%")
     ) and
-    varType.toLowerCase().matches("%address%") and
-    result =
-      "impl_slot|" + getContractName(contract) + "|" + varName + "|" + varType + "|" +
-        var.getLocation().getFile().getName() + ":" + var.getLocation().getStartLine().toString()
+    type.toLowerCase().matches("%address%")
   )
 }
 
-/**
- * Detects EIP-1967 implementation slot usage.
- * Output: eip1967|contract|slot_type|file:line
- */
-string formatEIP1967Slot(Solidity::AstNode node) {
-  exists(Solidity::ContractDeclaration contract, string slotType |
-    node.getParent+() = contract and
+/** Literals matching a standard EIP-1967 storage slot hash. */
+query predicate eip1967Slots(string contract, string slot, Solidity::AstNode node) {
+  exists(Solidity::ContractDeclaration c |
+    node.getParent+() = c and
+    contract = getContractName(c) and
     (
-      // Implementation slot
       node.getValue()
           .matches("%360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc%") and
-      slotType = "implementation"
+      slot = "implementation"
       or
-      // Admin slot
       node.getValue()
           .matches("%b53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103%") and
-      slotType = "admin"
+      slot = "admin"
       or
-      // Beacon slot
       node.getValue()
           .matches("%a3f0ad74e5423aebfd80d3ef4346578335a9a72aeaee59ff6cb3582b35133d50%") and
-      slotType = "beacon"
-    ) and
-    result =
-      "eip1967|" + getContractName(contract) + "|" + slotType + "|" +
-        node.getLocation().getFile().getName() + ":" +
-        node.getLocation().getStartLine().toString()
+      slot = "beacon"
+    )
   )
 }
 
-/**
- * Detects proxy patterns based on inheritance.
- * Output: proxy_pattern|contract|pattern_type|inherited_from|file:line
- */
-string formatProxyPattern(Solidity::ContractDeclaration contract) {
-  exists(Solidity::ContractDeclaration base, string patternType |
-    base = InheritanceGraph::getInheritanceChain(contract) and
-    base != contract and
+/** Proxy patterns inferred from the names of inherited contracts. */
+query predicate proxyPatterns(
+  string contract, string pattern, string inheritedFrom, Solidity::ContractDeclaration node
+) {
+  exists(Solidity::ContractDeclaration base |
+    base = InheritanceGraph::getInheritanceChain(node) and
+    base != node and
+    contract = getContractName(node) and
+    inheritedFrom = getContractName(base) and
     (
-      getContractName(base).toLowerCase().matches("%uupsupgradeable%") and
-      patternType = "UUPS"
+      inheritedFrom.toLowerCase().matches("%uupsupgradeable%") and pattern = "UUPS"
       or
-      getContractName(base).toLowerCase().matches("%transparentupgradeableproxy%") and
-      patternType = "Transparent"
+      inheritedFrom.toLowerCase().matches("%transparentupgradeableproxy%") and
+      pattern = "Transparent"
       or
-      getContractName(base).toLowerCase().matches("%erc1967%") and
-      patternType = "EIP-1967"
+      inheritedFrom.toLowerCase().matches("%erc1967%") and pattern = "EIP-1967"
       or
-      getContractName(base).toLowerCase().matches("%beacon%") and
-      patternType = "Beacon"
+      inheritedFrom.toLowerCase().matches("%beacon%") and pattern = "Beacon"
       or
-      getContractName(base).toLowerCase().matches("%proxy%") and
-      not getContractName(base).toLowerCase().matches("%transparent%") and
-      not getContractName(base).toLowerCase().matches("%uups%") and
-      patternType = "Generic Proxy"
-    ) and
-    result =
-      "proxy_pattern|" + getContractName(contract) + "|" + patternType + "|" +
-        getContractName(base) + "|" + contract.getLocation().getFile().getName() + ":" +
-        contract.getLocation().getStartLine().toString()
+      inheritedFrom.toLowerCase().matches("%proxy%") and
+      not inheritedFrom.toLowerCase().matches("%transparent%") and
+      not inheritedFrom.toLowerCase().matches("%uups%") and
+      pattern = "Generic Proxy"
+    )
   )
 }
 
-/**
- * Detects diamond/facet patterns.
- * Output: diamond|contract|indicator|file:line
- */
-string formatDiamondPattern(Solidity::ContractDeclaration contract) {
-  (
-    getContractName(contract).toLowerCase().matches("%diamond%") or
-    getContractName(contract).toLowerCase().matches("%facet%")
-  ) and
-  result =
-    "diamond|" + getContractName(contract) + "|name_pattern|" +
-      contract.getLocation().getFile().getName() + ":" +
-      contract.getLocation().getStartLine().toString()
+/** Contracts whose name suggests a diamond/facet layout. */
+query predicate diamondPatterns(string contract, Solidity::ContractDeclaration node) {
+  contract = getContractName(node) and
+  (contract.toLowerCase().matches("%diamond%") or contract.toLowerCase().matches("%facet%"))
 }
-
-// Main query
-from string info
-where
-  info = formatUsingFor(_)
-  or
-  info = formatLibrary(_)
-  or
-  info = formatDelegatecall(_)
-  or
-  info = formatImplementationSlot(_)
-  or
-  info = formatEIP1967Slot(_)
-  or
-  info = formatProxyPattern(_)
-  or
-  info = formatDiamondPattern(_)
-select info, info

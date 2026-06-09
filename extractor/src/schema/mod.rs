@@ -4,7 +4,11 @@
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
+// BTreeMap, not HashMap: field iteration order determines the order of the
+// generated relations, and CodeQL keys database compatibility off the dbscheme
+// text. Randomized iteration would invalidate every existing database on each
+// regeneration.
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::Path;
 
@@ -15,7 +19,7 @@ struct NodeType {
     type_name: String,
     named: bool,
     #[serde(default)]
-    fields: HashMap<String, FieldInfo>,
+    fields: BTreeMap<String, FieldInfo>,
     #[serde(default)]
     children: Option<ChildInfo>,
     #[serde(default)]
@@ -33,7 +37,8 @@ struct FieldInfo {
 
 #[derive(Debug, Deserialize)]
 struct ChildInfo {
-    multiple: bool,
+    #[serde(rename = "multiple")]
+    _multiple: bool,
     #[serde(rename = "required")]
     _required: bool,
     types: Vec<TypeRef>,
@@ -107,6 +112,9 @@ fn generate_dbscheme(node_types: &[NodeType]) -> String {
 
     // Generate token info table
     schema.push_str(&generate_token_tables());
+
+    // Generate folded constant-value table
+    schema.push_str(&generate_const_value_tables());
 
     schema
 }
@@ -248,15 +256,9 @@ fn generate_node_tables(node: &NodeType) -> String {
         ));
     }
 
-    // Generate child table if has generic children
-    if let Some(children) = &node.children {
-        if children.multiple {
-            result.push_str(&format!(
-                "#keyset[id, index]\nsolidity_{name}_child(\n    int id: @solidity_{name} ref,\n    int index: int ref,\n    int child: @solidity_ast_node ref\n);\n\n",
-                name = name
-            ));
-        }
-    }
+    // No per-type child table: generic children live in the single
+    // `solidity_ast_node_child` relation (see generate_location_tables), so
+    // `getChild(i)` has one definition and one indexing rule for every node type.
 
     result
 }
@@ -273,12 +275,23 @@ solidity_ast_node_location(
     int loc: @location_default ref
 );
 
-// Parent-child relationships with index
+// Parent-child relationships with index. `index` counts *every* child, including
+// anonymous tokens and comments, and is what `getParentIndex()` reports.
 #keyset[parent, index]
 solidity_ast_node_parent(
     int child: @solidity_ast_node ref,
     int parent: @solidity_ast_node ref,
     int index: int ref
+);
+
+// Semantic children: named, non-extra, and not reachable through a field
+// accessor, numbered contiguously in source order. This is what `getChild(i)`
+// reads, so index 0 of a block is its first statement rather than its `{`.
+#keyset[id, index]
+solidity_ast_node_child(
+    int id: @solidity_ast_node ref,
+    int index: int ref,
+    int child: @solidity_ast_node ref
 );
 
 // AST node type info (kind_id from tree-sitter)
@@ -301,6 +314,25 @@ fn generate_token_tables() -> String {
 solidity_tokeninfo(
     unique int id: @solidity_ast_node ref,
     int kind: int ref,
+    string value: string ref
+);
+
+"#
+    .to_string()
+}
+
+/// Generate the folded constant-value table.
+fn generate_const_value_tables() -> String {
+    r#"// ============================================================
+// Folded Constant Values
+// ============================================================
+
+// Compile-time integer value of a constant expression, as a canonical decimal
+// string (may be negative). Values can exceed 64 bits (e.g. a `layout at` slot
+// base near 2**256), so they are stored as strings rather than ints. Only
+// emitted for expressions the extractor can fold from literals.
+solidity_const_value(
+    unique int node: @solidity_ast_node ref,
     string value: string ref
 );
 

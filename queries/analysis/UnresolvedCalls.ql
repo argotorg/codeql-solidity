@@ -1,13 +1,7 @@
 /**
  * @name Unresolved calls
  * @description Calls that cannot be statically resolved to a target function.
- * @kind problem
- * @problem.severity recommendation
- * @precision high
  * @id solidity/unresolved-calls
- * @tags analysis
- *       call-graph
- *       solidity
  */
 
 import codeql.solidity.ast.internal.TreeSitter
@@ -45,31 +39,20 @@ Solidity::ContractDeclaration getEnclosingContract(Solidity::FunctionDefinition 
  * Gets a string representation of the call target.
  */
 string getCallTargetString(Solidity::CallExpression call) {
-  exists(Solidity::Identifier id |
-    id = call.getFunction().getAChild*() and
-    result = id.getValue()
-  )
+  result = call.getFunction().(Solidity::Identifier).getValue()
   or
-  exists(Solidity::MemberExpression member |
-    member = call.getFunction().getAChild*() and
-    result = member.getProperty().(Solidity::AstNode).getValue()
-  )
+  result = call.getFunction().(Solidity::MemberExpression).getProperty().(Solidity::AstNode).getValue()
 }
 
-/**
- * Unresolved calls (not builtin, not resolvable).
- */
-from
-  Solidity::CallExpression call,
-  Solidity::FunctionDefinition callerFunc,
-  Solidity::ContractDeclaration callerContract,
-  string targetName
-where
-  CallResolution::isUnresolved(call) and
-  callerFunc = getEnclosingFunction(call) and
-  callerContract = getEnclosingContract(callerFunc) and
-  targetName = getCallTargetString(call)
-select call,
-  getContractName(callerContract) + "." + getFunctionName(callerFunc) + " -> [UNRESOLVED: " +
-    targetName + "] at " + call.getLocation().getFile().getName() + ":" +
-    call.getLocation().getStartLine().toString()
+/** Calls the resolver could not tie to a definition, with the callee name as written. */
+query predicate unresolvedCalls(
+  string contract, string function, string target, Solidity::CallExpression node
+) {
+  CallResolution::isUnresolved(node) and
+  exists(Solidity::FunctionDefinition f |
+    f = getEnclosingFunction(node) and
+    contract = getContractName(getEnclosingContract(f)) and
+    function = getFunctionName(f) and
+    target = getCallTargetString(node)
+  )
+}

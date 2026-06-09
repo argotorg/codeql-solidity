@@ -1,63 +1,166 @@
 # CodeQL Solidity
 
-[![Test](https://github.com/lucasamorimca/codeql-solidity/actions/workflows/test.yml/badge.svg)](https://github.com/lucasamorimca/codeql-solidity/actions/workflows/test.yml)
-[![Release](https://github.com/lucasamorimca/codeql-solidity/actions/workflows/release.yml/badge.svg)](https://github.com/lucasamorimca/codeql-solidity/releases)
+This project lets you query Solidity smart contracts with CodeQL. A Rust
+extractor parses `.sol` files with tree-sitter into a CodeQL database — no
+`solc`, no `npm`, no build system, just source text — and a QL library on top of
+it exposes the AST, the call graph, inheritance, and taint tracking, so you can
+write declarative queries that find bugs and vulnerability patterns across a
+whole corpus of contracts at once.
+
+Originally by @lucasamorimca, see https://github.com/lucasamorimca/codeql-solidity
+
+[![Test](https://github.com/argotorg/codeql-solidity/actions/workflows/test.yml/badge.svg)](https://github.com/argotorg/codeql-solidity/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-CodeQL extractor and queries for Solidity smart contract security analysis.
+## Setup
 
-## Features
-
-- Tree-sitter based Solidity parsing
-- Dataflow and taint tracking
-- Call graph and inheritance analysis
-
-## Installation
-
-### Download CodeQL Packs
+The only prerequisite is [Nix](https://nixos.org/download/) with flakes
+enabled. Then:
 
 ```bash
-codeql pack download lucasamorimca/solidity-all
-codeql pack download lucasamorimca/solidity-queries
+git clone https://github.com/argotorg/codeql-solidity.git
+cd codeql-solidity
+nix develop
+setup-extractor    # build the binary, generate the dbscheme & QL library
 ```
 
-### Download Extractor
+`setup-extractor` produces the gitignored build artifacts — the extractor binary
+in `extractor-pack/tools/`, plus `solidity.dbscheme` and `TreeSitter.qll` — so
+re-run it after touching the extractor or the grammar.
 
-Download from [Releases](https://github.com/lucasamorimca/codeql-solidity/releases)
-
-## Usage
+## Extract the sources into a database
 
 ```bash
-# Create database
-export CODEQL_EXTRACTOR_SOLIDITY_ROOT=/path/to/extractor-pack
-codeql database create db --language=solidity --source-root=/path/to/contracts
-
-# Run analysis
-codeql database analyze db lucasamorimca/solidity-queries --format=sarif-latest --output=results.sarif
+codeql database create tests-db --language=solidity \
+    --source-root=tests --search-path="$PWD" --overwrite
+codeql dataset measure -j8 \
+    -o tests-db/db-solidity/solidity.dbscheme.stats tests-db/db-solidity
 ```
 
-## Project Structure
+Walks every `.sol` file under `--source-root` and runs the extractor over it,
+writing `tests-db/`: the relational database (one table per AST node kind, per
+`solidity.dbscheme`) plus a copy of the sources so results can point back at
+lines.
 
-```
-codeql-solidity/
-├── extractor/           # Rust extractor binary
-├── ql/lib/              # QL library (lucasamorimca/solidity-all)
-├── queries/             # Security queries (lucasamorimca/solidity-queries)
-├── extractor-pack/      # CodeQL extractor configuration
-└── tests/               # Test fixtures
-```
+## Run a query
 
-## Building from Source
+Queries under `queries/analysis/` are **table queries**:
 
 ```bash
-cd extractor
-cargo build --release
-
-# Generate schema and QL library
-./target/release/codeql-extractor-solidity generate \
-  --dbscheme ../ql/lib/solidity.dbscheme \
-  --library ../ql/lib/codeql/solidity/ast/internal/TreeSitter.qll
+$ codeql query run queries/analysis/ReentrancyPatterns.ql \
+    --database=tests-db --additional-packs="$PWD" --output=r.bqrs
+$ codeql bqrs decode --format=text --result-set=externalCalls r.bqrs
+|          contract           |        function         |   callType   | guarded |      node      |
++-----------------------------+-------------------------+--------------+---------+----------------+
+| ReentrancyVulnerable        | withdraw                | call         | false   | CallExpression |
+| ReentrancyTransfer          | withdraw                | transfer     | false   | CallExpression |
+| ReentrancySend              | withdraw                | transfer     | false   | CallExpression |
+...
 ```
+
+The argument `--format=csv` writes the same table as CSV. For downstream tooling, decode to
+JSON and ask for source spans:
+
+```bash
+$ codeql bqrs decode --format=json --entities=url,string \
+    --result-set=externalCalls r.bqrs > externalCalls.json
+```
+
+Then you get:
+
+```json
+{
+  "columns": [
+    { "name": "contract", "kind": "String" },
+    { "name": "function", "kind": "String" },
+    { "name": "callType", "kind": "String" },
+    { "name": "guarded",  "kind": "Boolean" },
+    { "name": "node",     "kind": "Entity" }
+  ],
+  "tuples": [
+    ["ReentrancyVulnerable", "withdraw", "call", false, {
+      "label": "CallExpression",
+      "url": {
+        "uri": "file:///home/you/codeql-solidity/tests/fixtures/ReentrancyTest.sol",
+        "startLine": 16, "startColumn": 28, "endLine": 16, "endColumn": 62
+      }
+    }]
+  ]
+}
+```
+
+## Example Queries
+
+All queries live in [`queries/analysis/`](queries/analysis/).
+
+| Query                            | Reports                                                  |
+|----------------------------------|----------------------------------------------------------|
+| `AssemblyAnalysis.ql`            | inline assembly blocks and what they touch                |
+| `AssertInProductionCode.ql`      | `assert` outside test/fuzzing paths                       |
+| `CallGraph.ql`                   | caller → callee edges, with the resolution kind           |
+| `CalleeKinds.ql`                 | every call expression by callee kind                      |
+| `DataFlowAnalysis.ql`            | taint from sources to sinks                               |
+| `DeFiPatterns.ql`                | swap, oracle, and liquidity patterns                      |
+| `ERCCompliance.ql`               | missing or mis-typed ERC-20/721 members                   |
+| `EventPatterns.ql`               | events declared and emitted                               |
+| `ExternalCallGraph.ql`           | calls that leave the contract                             |
+| `ExternalCallsAnalysis.ql`       | external call sites with their value/gas modifiers        |
+| `FunctionList.ql`                | every function with visibility, mutability, state access  |
+| `InheritanceAnalysis.ql`         | inheritance edges and overrides                           |
+| `ProxyPatterns.ql`               | `delegatecall` proxies and implementation slots           |
+| `ReentrancyPatterns.ql`          | external call before the state update (CEI), 3 variants   |
+| `RequireWithoutReason.ql`        | `require()` with no reason string                         |
+| `StorageLayout.ql`               | state variables in declaration order                      |
+| `TokenPatterns.ql`               | mint, burn, transfer, and allowance patterns              |
+| `UnresolvedCalls.ql`             | calls whose target could not be resolved                  |
+
+
+## Limitation: inline assembly
+
+Control flow is modelled for Solidity bodies but not for Yul: on the `tests/`
+corpus 579 of 601 function entries reach their exit, and the ~22 that do not
+are assembly-heavy, with Yul nodes largely disconnected from the graph.
+Anything a query concludes about code inside `assembly { … }` — reachability,
+ordering, taint — is unreliable, so `AssemblyAnalysis.ql` reports assembly
+blocks and their opcodes as plain facts rather than reasoning about them.
+
+## Running against Sourcify dataset
+
+[Sourcify](https://docs.sourcify.dev/docs/repository/download-dataset/) publishes
+every verified contract as parquet shards. Download them, join them into `.sol`
+files, build a database.
+
+```bash
+cd sourcify
+./download_parquet.py compiled_contracts_sources -n 26   # id -> hash, path (1.4 GB)
+./download_parquet.py sources -n 632                     # hash -> content (17 GB)
+./extract_compilation.py e4    # compilation_id prefix -> extracted/<id>/<path>
+
+cd ..
+codeql database create sourcify-db --language=solidity \
+    --source-root=sourcify/extracted --search-path="$PWD"
+codeql dataset measure -j8 \
+    -o sourcify-db/db-solidity/solidity.dbscheme.stats sourcify-db/db-solidity
+```
+
+Downloads are resumable and skip what's already there. `-n` caps shards,
+`--list-only` dry-runs. A longer prefix extracts fewer compilations:
+
+|                    | `e4` slice | full dataset (est.) |
+|--------------------|-----------:|--------------------:|
+| files              |    101,663 |                ~36M |
+| directories        |     90,968 |                ~32M |
+| content bytes      |     766 MB |             ~270 GB |
+| actually allocated |    1.38 GB |             ~485 GB |
+
+
+### Memory usage
+
+The `database create` above needs far more memory than the extraction does. The
+extractor streams file by file, but the TRAP import that follows holds the
+growing relations in one JVM. Either give the import an explicit budget (`-M/--ram` on `database
+create`) on a machine with the headroom to honour it, or build over a subset.
+
 
 ## License
 

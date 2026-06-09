@@ -31,8 +31,8 @@ module DataFlow {
     predicate isMsgSender() {
       exists(Solidity::MemberExpression member |
         this.asExpr() = member and
-        member.getObject().(Solidity::Identifier).toString() = "msg" and
-        member.getProperty().(Solidity::AstNode).toString() = "sender"
+        member.getObject().(Solidity::Identifier).getValue() = "msg" and
+        member.getProperty().(Solidity::AstNode).getValue() = "sender"
       )
     }
 
@@ -42,8 +42,8 @@ module DataFlow {
     predicate isMsgValue() {
       exists(Solidity::MemberExpression member |
         this.asExpr() = member and
-        member.getObject().(Solidity::Identifier).toString() = "msg" and
-        member.getProperty().(Solidity::AstNode).toString() = "value"
+        member.getObject().(Solidity::Identifier).getValue() = "msg" and
+        member.getProperty().(Solidity::AstNode).getValue() = "value"
       )
     }
 
@@ -53,8 +53,8 @@ module DataFlow {
     predicate isMsgData() {
       exists(Solidity::MemberExpression member |
         this.asExpr() = member and
-        member.getObject().(Solidity::Identifier).toString() = "msg" and
-        member.getProperty().(Solidity::AstNode).toString() = "data"
+        member.getObject().(Solidity::Identifier).getValue() = "msg" and
+        member.getProperty().(Solidity::AstNode).getValue() = "data"
       )
     }
 
@@ -64,8 +64,8 @@ module DataFlow {
     predicate isTxOrigin() {
       exists(Solidity::MemberExpression member |
         this.asExpr() = member and
-        member.getObject().(Solidity::Identifier).toString() = "tx" and
-        member.getProperty().(Solidity::AstNode).toString() = "origin"
+        member.getObject().(Solidity::Identifier).getValue() = "tx" and
+        member.getProperty().(Solidity::AstNode).getValue() = "origin"
       )
     }
 
@@ -75,8 +75,8 @@ module DataFlow {
     predicate isBlockTimestamp() {
       exists(Solidity::MemberExpression member |
         this.asExpr() = member and
-        member.getObject().(Solidity::Identifier).toString() = "block" and
-        member.getProperty().(Solidity::AstNode).toString() = "timestamp"
+        member.getObject().(Solidity::Identifier).getValue() = "block" and
+        member.getProperty().(Solidity::AstNode).getValue() = "timestamp"
       )
     }
 
@@ -116,23 +116,23 @@ module DataFlow {
     exists(Solidity::MemberExpression member |
       member = call.getFunction() and
       (
-        member.getProperty().(Solidity::AstNode).toString() = "call" or
-        member.getProperty().(Solidity::AstNode).toString() = "delegatecall" or
-        member.getProperty().(Solidity::AstNode).toString() = "staticcall" or
-        member.getProperty().(Solidity::AstNode).toString() = "transfer" or
-        member.getProperty().(Solidity::AstNode).toString() = "send"
+        member.getProperty().(Solidity::AstNode).getValue() = "call" or
+        member.getProperty().(Solidity::AstNode).getValue() = "delegatecall" or
+        member.getProperty().(Solidity::AstNode).getValue() = "staticcall" or
+        member.getProperty().(Solidity::AstNode).getValue() = "transfer" or
+        member.getProperty().(Solidity::AstNode).getValue() = "send"
       )
     )
     or
     // Interface/contract method calls
     exists(Solidity::MemberExpression member |
       member = call.getFunction() and
-      not member.getObject().(Solidity::Identifier).toString() = "this" and
-      not member.getObject().(Solidity::Identifier).toString() = "super" and
-      not member.getObject().(Solidity::Identifier).toString() = "abi" and
-      not member.getObject().(Solidity::Identifier).toString() = "msg" and
-      not member.getObject().(Solidity::Identifier).toString() = "block" and
-      not member.getObject().(Solidity::Identifier).toString() = "tx"
+      not member.getObject().(Solidity::Identifier).getValue() = "this" and
+      not member.getObject().(Solidity::Identifier).getValue() = "super" and
+      not member.getObject().(Solidity::Identifier).getValue() = "abi" and
+      not member.getObject().(Solidity::Identifier).getValue() = "msg" and
+      not member.getObject().(Solidity::Identifier).getValue() = "block" and
+      not member.getObject().(Solidity::Identifier).getValue() = "tx"
     )
   }
 

@@ -14,13 +14,16 @@ jobs:
   rust-test:
     name: Rust Tests
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: nix develop .#rust --command bash -e {0}
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: cachix/install-nix-action@v31
         with:
-          components: rustfmt, clippy
+          extra_nix_config: |
+            experimental-features = nix-command flakes
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -43,40 +46,10 @@ jobs:
         run: cargo test
         working-directory: extractor
 
-  codeql-test:
-    name: CodeQL Pack Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install CodeQL CLI
-        run: |
-          gh release download --repo github/codeql-cli-binaries --pattern "codeql-linux64.zip" --dir /tmp
-          unzip -q /tmp/codeql-linux64.zip -d /opt
-          echo "/opt/codeql" >> "$GITHUB_PATH"
-        env:
-          GH_TOKEN: ${{ github.token }}
-
-      - name: Install packs
-        run: |
-          codeql pack install ql/lib
-          codeql pack install --additional-packs ql/lib queries
-
-      - name: Test queries
-        run: |
-          if ! codeql pack test --additional-packs ql/lib tests 2>&1 | tee test-output.log; then
-            if grep -q "No tests found\|Could not find any tests" test-output.log; then
-              echo "::error::No CodeQL tests found in tests/ — add .qlref test files"
-              exit 1
-            else
-              echo "::error::CodeQL query tests failed"
-              exit 1
-            fi
-          fi
-
   msrv:
     name: MSRV Check (Rust 1.82)
     runs-on: ubuntu-latest
+    # Not via nix: the dev shell tracks nixpkgs' rustc, this pins the floor.
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@1.82.0

@@ -34,6 +34,10 @@ serde_json = "1"
 # Hashing for deterministic labels
 sha2 = "0.10"
 
+# Arbitrary-precision integers for constant folding (Solidity constants are 256-bit)
+num-bigint = "0.4"
+num-traits = "0.2"
+
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

@@ -1,14 +1,7 @@
 /**
  * @name Assembly block analysis
- * @description Analyzes inline assembly and Yul blocks with security classification.
- * @kind problem
- * @problem.severity recommendation
- * @precision high
+ * @description Inline assembly and Yul blocks with security classification.
  * @id solidity/assembly-analysis
- * @tags analysis
- *       assembly
- *       yul
- *       solidity
  */
 
 import codeql.solidity.ast.internal.TreeSitter
@@ -117,113 +110,30 @@ string getHighestRisk(string ops) {
   result = "low"
 }
 
-/**
- * Assembly block information.
- * Output: assembly|contract|function|operations|risk_level|file:line
- */
-string formatAssemblyBlock(AssemblyBlock asm) {
-  exists(
-    Solidity::ContractDeclaration contract, Solidity::FunctionDefinition func, string ops,
-    string risk
-  |
-    contract = asm.getEnclosingContract() and
-    func = asm.getEnclosingFunction() and
-    ops =
-      concat(string op |
-        dangerousOperation(op, _) and assemblyContainsOp(asm, op)
-      |
-        op, ","
-      ) and
-    (
-      ops != "" and risk = getHighestRisk(ops)
-      or
-      ops = "" and risk = "low"
-    ) and
-    result =
-      "assembly|" + getContractName(contract) + "|" + getFunctionName(func) + "|" + ops + "|" +
-        risk + "|" + asm.getLocation().getFile().getName() + ":" +
-        asm.getLocation().getStartLine().toString()
+/** One row per inline assembly block, with its risk-ranked operation set. */
+query predicate assemblyBlocks(
+  string contract, string function, string operations, string risk, AssemblyBlock node
+) {
+  contract = getContractName(node.getEnclosingContract()) and
+  function = getFunctionName(node.getEnclosingFunction()) and
+  operations =
+    concat(string op | dangerousOperation(op, _) and assemblyContainsOp(node, op) | op, ",") and
+  (
+    operations != "" and risk = getHighestRisk(operations)
+    or
+    operations = "" and risk = "low"
   )
 }
 
 /**
- * Storage operations in assembly.
- * Output: storage_op|contract|function|operation|file:line
+ * One row per (assembly block, dangerous operation) pair. Filter on `op` for the
+ * storage / call / create / selfdestruct subsets.
  */
-string formatStorageOp(AssemblyBlock asm) {
-  exists(Solidity::ContractDeclaration contract, Solidity::FunctionDefinition func, string op |
-    contract = asm.getEnclosingContract() and
-    func = asm.getEnclosingFunction() and
-    op in ["sstore", "sload"] and
-    assemblyContainsOp(asm, op) and
-    result =
-      "storage_op|" + getContractName(contract) + "|" + getFunctionName(func) + "|" + op + "|" +
-        asm.getLocation().getFile().getName() + ":" + asm.getLocation().getStartLine().toString()
-  )
+query predicate assemblyOperations(
+  string contract, string function, string op, string risk, AssemblyBlock node
+) {
+  contract = getContractName(node.getEnclosingContract()) and
+  function = getFunctionName(node.getEnclosingFunction()) and
+  dangerousOperation(op, risk) and
+  assemblyContainsOp(node, op)
 }
-
-/**
- * External calls in assembly.
- * Output: asm_call|contract|function|call_type|file:line
- */
-string formatAsmExternalCall(AssemblyBlock asm) {
-  exists(
-    Solidity::ContractDeclaration contract, Solidity::FunctionDefinition func, string callType
-  |
-    contract = asm.getEnclosingContract() and
-    func = asm.getEnclosingFunction() and
-    callType in ["call", "delegatecall", "staticcall"] and
-    assemblyContainsOp(asm, callType) and
-    result =
-      "asm_call|" + getContractName(contract) + "|" + getFunctionName(func) + "|" + callType + "|" +
-        asm.getLocation().getFile().getName() + ":" + asm.getLocation().getStartLine().toString()
-  )
-}
-
-/**
- * Critical operations (selfdestruct, delegatecall).
- * Output: critical|contract|function|operation|file:line
- */
-string formatCriticalOp(AssemblyBlock asm) {
-  exists(Solidity::ContractDeclaration contract, Solidity::FunctionDefinition func, string op |
-    contract = asm.getEnclosingContract() and
-    func = asm.getEnclosingFunction() and
-    op in ["selfdestruct", "delegatecall"] and
-    assemblyContainsOp(asm, op) and
-    result =
-      "critical|" + getContractName(contract) + "|" + getFunctionName(func) + "|" + op + "|" +
-        asm.getLocation().getFile().getName() + ":" + asm.getLocation().getStartLine().toString()
-  )
-}
-
-/**
- * Contract creation in assembly.
- * Output: create|contract|function|create_type|file:line
- */
-string formatCreateOp(AssemblyBlock asm) {
-  exists(
-    Solidity::ContractDeclaration contract, Solidity::FunctionDefinition func, string createType
-  |
-    contract = asm.getEnclosingContract() and
-    func = asm.getEnclosingFunction() and
-    createType in ["create", "create2"] and
-    assemblyContainsOp(asm, createType) and
-    result =
-      "create|" + getContractName(contract) + "|" + getFunctionName(func) + "|" + createType + "|" +
-        asm.getLocation().getFile().getName() + ":" + asm.getLocation().getStartLine().toString()
-  )
-}
-
-// Main query
-from string info
-where
-  info = formatAssemblyBlock(_)
-  or
-  info = formatStorageOp(_)
-  or
-  info = formatAsmExternalCall(_)
-  or
-  info = formatCriticalOp(_)
-  or
-  info = formatCreateOp(_)
-select info, info
