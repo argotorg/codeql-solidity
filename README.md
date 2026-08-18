@@ -132,11 +132,8 @@ every verified contract as parquet shards, in two datasets that join on a hash:
 ```bash
 cd sourcify
 ./download_parquet.py sources -n 632                     # hash -> content (17.4 GB)
-./download_parquet.py compiled_contracts_sources -n 26   # id -> hash, path (1.4 GB)
+./download_parquet.py compiled_contracts_sources -n 40   # id -> hash, path (1.4 GB)
 ```
-
-Downloads are resumable and skip what's already there. `-n` caps shards,
-`--list-only` dry-runs.
 
 ### One compilation
 
@@ -153,16 +150,22 @@ the whole dataset. A longer prefix extracts fewer compilations.
 ### The whole corpus
 
 `extract_all_sources.py` streams the sources shards and writes each *unique*
-content once, so memory stays flat and no join is needed — the
-`compiled_contracts_sources` download is optional:
+content once, so memory stays flat:
 
 ```bash
-./extract_all_sources.py -o ../corpus          # -> <xx>/<yy>/<hash>.sol
+./extract_all_sources.py -o ../corpus     # -> <xx>/<yy>/<hash>__Ownable.sol
 ```
 
 The 25.2M per-compilation file instances collapse to 6,301,900 distinct files, and
 nothing is lost: this extractor never resolves imports (it parses each file
 independently), so the duplicated per-compilation tree buys no analysis fidelity.
+
+Each file keeps its real name, so results read as `Ownable.sol` rather than a
+bare hash. The names come from the compiled shards, which are read once into a
+hash -> filename index (~34s, ~1.7 GB) — that is why both datasets are needed.
+The hash prefix stays because basenames collide: 2,794 distinct sources are
+called `Token.sol`. A source no compilation references falls back to a bare
+hash; with all 37 compiled shards that is a small remainder.
 
 |                    | `e4` slice | per-compilation | deduplicated |
 |--------------------|-----------:|----------------:|-------------:|
@@ -170,14 +173,10 @@ independently), so the duplicated per-compilation tree buys no analysis fidelity
 | content bytes      |     766 MB |         ~270 GB |      103.6 GB |
 | actually allocated |    1.38 GB |         ~485 GB |       ~121 GB |
 
-Add `--solidity-only` to drop the ~0.02% of sources that are Vyper or junk; it
-needs the compiled shards to know which hashes came from a `.sol` path. Without
-it those are written as `.sol` and show up as extractor parse failures. Both
-scripts are resumable — re-running skips what exists — and `-j` sets the worker
-count.
-
-Extraction is I/O bound and quick: the whole corpus takes **~3 minutes** at
-`-j 8` (measured at ~39k files/s).
+Add `--solidity-only` to drop the ~0.02% of sources that are Vyper or junk;
+without it those are written as `.sol` and show up as extractor parse failures.
+Both scripts are resumable — re-running skips what exists — and `-j` sets the
+worker count.
 
 ### Building databases
 
