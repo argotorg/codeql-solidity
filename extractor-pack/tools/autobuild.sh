@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Autobuild script for Solidity extractor
 # This script is called by CodeQL to extract Solidity files
 

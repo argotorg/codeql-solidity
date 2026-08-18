@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # CodeQL Solidity Index Files Script
 #
 # This script is invoked by the CodeQL CLI to extract specific files.
