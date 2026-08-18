@@ -46,13 +46,20 @@ def resolve(patterns, base):
 
 
 def safe_name(path):
-    """A filesystem-safe basename for a Sourcify compiler-input path, or None."""
+    """A filesystem-safe basename for a Sourcify compiler-input path, or None.
+
+    Sourcify paths are arbitrary compiler input: absolute, `..`-laden, Windows
+    drive letters, control characters. Keep only the last component, allowlist
+    the characters, and drop leading dots so `.`/`..` cannot survive.
+    """
     base = re.split(r"[\\/]+", path)[-1]
     base = BAD.sub("_", base).lstrip(".")
     if not base.lower().endswith(".sol"):
         return None
     if len(base) > 100:
         base = base[:96] + ".sol"
+    if os.sep in base or base in (".", ".."):  # unreachable; cheap to assert
+        return None
     return base
 
 
