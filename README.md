@@ -188,12 +188,7 @@ one database per `<xx>` subdir rather than a single enormous one:
 ./build_dbs.py ../corpus ../dbs -j 8 --ram 8000     # creates 256 DB shards
 ```
 
-The databases are kept. Building the corpus is the expensive part, and you want
-to query it more than once. Each finished shard leaves a `.built` marker and is
-skipped on re-run, so an interrupted pass resumes where it stopped.
-
-This is the slow stage. One 24,600-file shard takes **276s at `-j 4`** (89
-files/s) and yields a 1.2 GB database, so the full corpus is:
+Corpus built:
 
 | | |
 |---|---|
@@ -208,35 +203,15 @@ rather than cores. Build a single shard first to calibrate against your own
 hardware — `./build_dbs.py ../corpus ../dbs -j 4 00` — and once a full run is
 going it prints an ETA from the shards it has finished.
 
-### Querying them
+### Querying
 
 ```bash
-./query_dbs.py ../dbs ../results                          # the whole queries/ pack
-./query_dbs.py ../dbs ../fnlist -q analysis/FunctionList.ql   # one query
+./query_dbs.py ../dbs ../fnlist -q analysis/FunctionList.ql
 ```
 
 Results land in `<out>/<shard>/<query>.json`. Re-run it with a different `-q` as
 often as you like — no re-extraction, and CodeQL reuses cached results per
 database unless you pass `--rerun`.
-
-### Threads and memory
-
-`-j` is threaded through every stage: extraction, TRAP import, and query
-evaluation. CodeQL forwards `database create -j` to the extractor as
-`CODEQL_EXTRACTOR_SOLIDITY_THREADS`, which `autobuild.sh` turns into the
-extractor's own `--threads`; without it rayon takes every core. Note that
-`database create` and `run-queries` both default to a *single* thread when `-j`
-is not given. `-w` runs whole shards concurrently, so total threads are roughly
-`j * w`.
-
-Memory is the binding constraint, and it scales with shard size and `-j`
-together. Building a 24.6k-file shard peaked at **8.6 GB resident despite
-`--ram 4000`** — `--ram` is a hint to the import and evaluator heaps, not a hard
-cap. Budget ~10 GB per concurrent shard and set `-w` from available RAM rather
-than core count. The evaluator also spills to disk inside the database
-directory, so that filesystem needs headroom beyond the database itself;
-putting it on a small tmpfs will fail with `Disk quota exceeded` mid-query.
-
 
 ## License
 
