@@ -185,7 +185,7 @@ A database runs several times the size of its sources, so the corpus is built as
 one database per `<xx>` subdir rather than a single enormous one:
 
 ```bash
-./build_dbs.py ../corpus ../dbs -j 8 --ram 8000     # creates 256 DB shards
+./build_dbs.py ../corpus ../dbs -j 8 -w 2 --ram 8000     # creates 256 DB shards
 ```
 
 Corpus built:
@@ -197,11 +197,7 @@ Corpus built:
 | with `-w 2` / `-w 4` | ~10 h / ~5 h |
 | databases total | ~307 GB |
 
-The TRAP import is only partly parallel, so raising `-j` past ~4 gives
-diminishing returns; `-w` is the lever that actually scales, bounded by memory
-rather than cores. Build a single shard first to calibrate against your own
-hardware — `./build_dbs.py ../corpus ../dbs -j 4 00` — and once a full run is
-going it prints an ETA from the shards it has finished.
+`-j` is threads within a shard, `-w` is shards built at once (~10 GB RAM each).
 
 ### Querying
 
