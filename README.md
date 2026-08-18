@@ -147,7 +147,7 @@ and reproduces that compilation's original directory layout:
 It holds the content of everything it matches in memory, so it suits a slice, not
 the whole dataset. A longer prefix extracts fewer compilations.
 
-### The whole corpus
+## The whole corpus
 
 `extract_all_sources.py` streams the sources shards and writes each *unique*
 content once, so memory stays flat:
