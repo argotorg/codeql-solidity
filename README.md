@@ -157,7 +157,7 @@ content once, so memory stays flat and no join is needed — the
 `compiled_contracts_sources` download is optional:
 
 ```bash
-./extract_all_sources.py -o ~/corpus          # -> <xx>/<yy>/<hash>.sol
+./extract_all_sources.py -o ../corpus          # -> <xx>/<yy>/<hash>.sol
 ```
 
 The 25.2M per-compilation file instances collapse to 6,301,900 distinct files, and
@@ -182,7 +182,7 @@ A database runs several times the size of its sources, so the corpus is built as
 one database per `<xx>` subdir rather than a single enormous one:
 
 ```bash
-./build_dbs.py ~/corpus ~/dbs -j 8 --ram 8000     # 256 shards, ~24.6k files each
+./build_dbs.py ../corpus ../dbs -j 8 --ram 8000     # creates 256 DB shards
 ```
 
 The databases are kept. Building the corpus is the expensive part, and you want
@@ -192,8 +192,8 @@ skipped on re-run, so an interrupted pass resumes where it stopped.
 ### Querying them
 
 ```bash
-./query_dbs.py ~/dbs ~/results                          # the whole queries/ pack
-./query_dbs.py ~/dbs ~/fnlist -q analysis/FunctionList.ql   # one query
+./query_dbs.py ../dbs ../results                          # the whole queries/ pack
+./query_dbs.py ../dbs ../fnlist -q analysis/FunctionList.ql   # one query
 ```
 
 Results land in `<out>/<shard>/<query>.json`. Re-run it with a different `-q` as

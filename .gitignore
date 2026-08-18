@@ -57,6 +57,12 @@ __pycache__/
 /contracts/
 /vault-db/
 
+# Sourcify corpus, databases and query results (README puts them at the repo root)
+/corpus/
+/dbs/
+/results/
+/fnlist/
+
 # Sourcify parquet exports (large data, downloaded via sourcify/download_parquet.py)
 *.parquet
 *.parquet.part
