@@ -197,6 +197,40 @@ Results land in `<out>/<shard>/<query>.json`. Re-run it with a different `-q` as
 often as you like — no re-extraction, and CodeQL reuses cached results per
 database unless you pass `--rerun`.
 
+## Example Sourcify e4 slice
+
+Every command needed to go from nothing to query results over the `e4` slice
+(18,380 compilations, ~101k `.sol`). Each block assumes whatever is already there
+is stale and removes it first.
+
+```bash
+rm -rf codeql-solidity
+git clone https://github.com/argotorg/codeql-solidity.git
+cd codeql-solidity
+nix develop                # every command below runs inside this shell
+setup-extractor
+cd sourcify
+rm -rf sources compiled_contracts_sources extracted
+./download_parquet.py sources -n 632                     # 17.4 GB
+./download_parquet.py compiled_contracts_sources -n 40   # 1.4 GB
+./extract_compilation.py e4                              # -> extracted/<compilation_id>/<path>
+cd ..
+rm -rf dbs/e4
+mkdir -p dbs
+codeql database create dbs/e4 --language=solidity \
+    --source-root=sourcify/extracted --search-path="$PWD" -j 8 --ram 8000
+codeql dataset measure -j 8 \
+    -o dbs/e4/db-solidity/solidity.dbscheme.stats dbs/e4/db-solidity
+```
+
+Query it:
+
+```bash
+codeql query run queries/analysis/ReentrancyPatterns.ql \
+    --database=dbs/e4 --additional-packs="$PWD" --output=e4.bqrs
+codeql bqrs decode --format=csv --result-set=externalCalls e4.bqrs > externalCalls.csv
+```
+
 ## License
 
 Apache-2.0
