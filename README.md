@@ -176,6 +176,9 @@ it those are written as `.sol` and show up as extractor parse failures. Both
 scripts are resumable — re-running skips what exists — and `-j` sets the worker
 count.
 
+Extraction is I/O bound and quick: the whole corpus takes **~3 minutes** at
+`-j 8` (measured at ~39k files/s).
+
 ### Building databases
 
 A database runs several times the size of its sources, so the corpus is built as
@@ -188,6 +191,22 @@ one database per `<xx>` subdir rather than a single enormous one:
 The databases are kept. Building the corpus is the expensive part, and you want
 to query it more than once. Each finished shard leaves a `.built` marker and is
 skipped on re-run, so an interrupted pass resumes where it stopped.
+
+This is the slow stage. One 24,600-file shard takes **276s at `-j 4`** (89
+files/s) and yields a 1.2 GB database, so the full corpus is:
+
+| | |
+|---|---|
+| per shard | ~4.6 min, 1.2 GB |
+| 256 shards, sequential | **~20 h** |
+| with `-w 2` / `-w 4` | ~10 h / ~5 h |
+| databases total | ~307 GB |
+
+The TRAP import is only partly parallel, so raising `-j` past ~4 gives
+diminishing returns; `-w` is the lever that actually scales, bounded by memory
+rather than cores. Build a single shard first to calibrate against your own
+hardware — `./build_dbs.py ../corpus ../dbs -j 4 00` — and once a full run is
+going it prints an ETA from the shards it has finished.
 
 ### Querying them
 
@@ -211,11 +230,12 @@ is not given. `-w` runs whole shards concurrently, so total threads are roughly
 `j * w`.
 
 Memory is the binding constraint, and it scales with shard size and `-j`
-together — query evaluation on a 4.4k-file shard at `-j 8` reached ~6 GB
-resident. Set `--ram` and keep `-j` modest before reaching for `-w`. The
-evaluator also spills to disk inside the database directory, so that filesystem
-needs headroom beyond the database itself; putting it on a small tmpfs will fail
-with `Disk quota exceeded` mid-query.
+together. Building a 24.6k-file shard peaked at **8.6 GB resident despite
+`--ram 4000`** — `--ram` is a hint to the import and evaluator heaps, not a hard
+cap. Budget ~10 GB per concurrent shard and set `-w` from available RAM rather
+than core count. The evaluator also spills to disk inside the database
+directory, so that filesystem needs headroom beyond the database itself;
+putting it on a small tmpfs will fail with `Disk quota exceeded` mid-query.
 
 
 ## License
