@@ -176,7 +176,7 @@ one database per `<xx>` subdir rather than a single enormous one:
 ./build_dbs.py ../corpus ../dbs -j 8 -w 2 --ram 8000     # creates 256 DB shards
 ```
 
-Corpus built:
+We recommend using tmux to run this, as it may take a long while:
 
 | | |
 |---|---|
