@@ -68,6 +68,7 @@ jobs:
         # run-queries does not interpret query metadata, so the census queries in
         # analysis/ need no @kind and keep their real columns.
         run: |
+          mkdir -p ci-out
           codeql database create ci-out/db --language=solidity \
             --source-root=sample-src --search-path="$PWD"
           codeql dataset measure -j"$(nproc)" \
