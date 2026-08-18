@@ -8,7 +8,7 @@ use std::path::Path;
 use tracing::warn;
 use tree_sitter::{Node, Parser, Tree};
 
-use crate::extraction::constfold;
+use crate::extraction::{constfold, declinfo};
 use crate::trap::{Compression, Label, TrapValue, TrapWriter};
 
 /// Extractor for a single Solidity file.
@@ -208,6 +208,31 @@ impl Extractor {
         // wrapper-resolved node, so `label` is exactly what queries observe.
         if let Some(value) = constfold::fold(node, source) {
             self.emit_const_value(&label, &value.to_string())?;
+        }
+
+        // Type shape and declaration facts, so queries do not each re-derive
+        // "is this a `bytes memory`?" from the raw type syntax. See `declinfo`.
+        if let Some(info) = declinfo::type_info(node, source) {
+            self.trap.emit(
+                "solidity_type_info",
+                vec![
+                    TrapValue::Label(label.clone()),
+                    TrapValue::String(info.base),
+                    TrapValue::String(info.kind.to_string()),
+                    TrapValue::Int(info.array_dims),
+                ],
+            );
+        }
+        if let Some(info) = declinfo::decl_info(node, source) {
+            self.trap.emit(
+                "solidity_declaration",
+                vec![
+                    TrapValue::Label(label.clone()),
+                    TrapValue::String(info.name),
+                    TrapValue::String(info.kind.to_string()),
+                    TrapValue::String(info.data_location),
+                ],
+            );
         }
 
         // Process all children and emit field relationships

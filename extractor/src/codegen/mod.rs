@@ -200,6 +200,62 @@ fn generate_base_class() -> String {
             solidity_const_value(this, result)
         }
 
+        /**
+         * Gets the base type this `type_name` ultimately names, after peeling any
+         * array levels: a primitive name (`bytes`, `uint256`) or a dotted
+         * user-defined name. Has no result for mapping and function types, which
+         * name no single base — check `getTypeKind()` to tell those apart from a
+         * node that is not a type at all.
+         */
+        string getBaseType() {
+            solidity_type_info(this, result, _, _) and result != ""
+        }
+
+        /**
+         * Gets the kind of type this `type_name` names: one of `primitive`,
+         * `userdefined`, `mapping`, `function` or `other`.
+         */
+        string getTypeKind() {
+            solidity_type_info(this, _, result, _)
+        }
+
+        /**
+         * Gets the number of `[]` levels this `type_name` applies to its base
+         * type; 0 for a non-array type. `bytes[][]` yields 2.
+         */
+        int getArrayDims() {
+            solidity_type_info(this, _, _, result)
+        }
+
+        /**
+         * Gets the name this declaration binds. Has no result for an unnamed
+         * return parameter, or for a node that is not a declaration.
+         */
+        string getDeclarationName() {
+            solidity_declaration(this, result, _, _) and result != ""
+        }
+
+        /**
+         * Gets the kind of declaration this node is: one of `local`, `parameter`,
+         * `returnparameter`, `statevar`, `constant`, `structmember`,
+         * `eventparameter` or `errorparameter`.
+         */
+        string getDeclarationKind() {
+            solidity_declaration(this, _, result, _)
+        }
+
+        /**
+         * Gets the data location that applies to this declaration — `memory`,
+         * `storage`, `calldata` or `transient`. This is the effective location,
+         * not merely the written one: a state variable is `storage` with no
+         * `storage` token in the source. Has no result where none applies (a value
+         * type, a `constant`/`immutable`, or a struct member, whose location comes
+         * from the value it belongs to).
+         */
+        string getDataLocation() {
+            solidity_declaration(this, _, _, result) and result != ""
+        }
+
         /** Gets the parent of this node, if any */
         AstNode getParent() {
             solidity_ast_node_parent(this, result, _)

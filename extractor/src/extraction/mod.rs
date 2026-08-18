@@ -7,6 +7,7 @@
 //! - Source archive management
 
 mod constfold;
+mod declinfo;
 mod extractor;
 
 use anyhow::{Context, Result};

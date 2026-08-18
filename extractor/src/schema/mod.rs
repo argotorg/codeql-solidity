@@ -116,6 +116,9 @@ fn generate_dbscheme(node_types: &[NodeType]) -> String {
     // Generate folded constant-value table
     schema.push_str(&generate_const_value_tables());
 
+    // Generate declaration and type-shape tables
+    schema.push_str(&generate_decl_info_tables());
+
     schema
 }
 
@@ -334,6 +337,43 @@ fn generate_const_value_tables() -> String {
 solidity_const_value(
     unique int node: @solidity_ast_node ref,
     string value: string ref
+);
+
+"#
+    .to_string()
+}
+
+/// Generate the declaration and type-shape tables.
+fn generate_decl_info_tables() -> String {
+    r#"// ============================================================
+// Declarations and Type Shapes
+// ============================================================
+
+// What a `type_name` ultimately names, after peeling any array levels.
+// `base` is a primitive name (`bytes`, `uint256`) or a dotted user-defined name,
+// and is empty for mapping and function types, which name no single base.
+// `kind` is one of primitive | userdefined | mapping | function | other.
+// Emitted so queries need not peel `type_name(type_name(primitive_type), [, ])`
+// by hand, nor know that a mapping's first `primitive_type` child is its *key*.
+solidity_type_info(
+    unique int node: @solidity_ast_node ref,
+    string base: string ref,
+    string kind: string ref,
+    int array_dims: int ref
+);
+
+// A named value declaration. `kind` is one of local | parameter |
+// returnparameter | statevar | constant | structmember | eventparameter |
+// errorparameter. `data_location` is the location that *applies* to the
+// declaration rather than the one that was written: a state variable is
+// `storage` with no `storage` token in the source, and a `constant` or
+// `immutable` occupies no slot and so has none. `name` is empty for an unnamed
+// return parameter.
+solidity_declaration(
+    unique int node: @solidity_ast_node ref,
+    string name: string ref,
+    string kind: string ref,
+    string data_location: string ref
 );
 
 "#
