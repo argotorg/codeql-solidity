@@ -52,11 +52,20 @@ SRC_ARCHIVE="${CODEQL_EXTRACTOR_SOLIDITY_SOURCE_ARCHIVE_DIR:-src-archive}"
 
 mkdir -p "$TRAP_DIR" "$SRC_ARCHIVE"
 
+# CodeQL passes -j through as this; it also allows 0 (all cores) and -N
+# (leave N free), neither of which the extractor's usize --threads accepts.
+THREAD_ARGS=()
+if [[ "${CODEQL_EXTRACTOR_SOLIDITY_THREADS:-0}" =~ ^[0-9]+$ ]] \
+   && [ "${CODEQL_EXTRACTOR_SOLIDITY_THREADS:-0}" -gt 0 ]; then
+    THREAD_ARGS=(--threads "$CODEQL_EXTRACTOR_SOLIDITY_THREADS")
+fi
+
 # Run extractor
 "$EXTRACTOR" extract \
     --file-list "$FILE_LIST" \
     --trap-dir "$TRAP_DIR" \
-    --source-archive-dir "$SRC_ARCHIVE"
+    --source-archive-dir "$SRC_ARCHIVE" \
+    "${THREAD_ARGS[@]}"
 
 rm "$FILE_LIST"
 echo "Extraction complete"
