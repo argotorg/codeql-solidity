@@ -156,16 +156,7 @@ content once, so memory stays flat:
 ./extract_all_sources.py -o ../corpus     # -> <xx>/<yy>/<hash>__Ownable.sol
 ```
 
-The 25.2M per-compilation file instances collapse to 6,301,900 distinct files, and
-nothing is lost: this extractor never resolves imports (it parses each file
-independently), so the duplicated per-compilation tree buys no analysis fidelity.
-
-Each file keeps its real name, so results read as `Ownable.sol` rather than a
-bare hash. The names come from the compiled shards, which are read once into a
-hash -> filename index (~34s, ~1.7 GB) — that is why both datasets are needed.
-The hash prefix stays because basenames collide: 2,794 distinct sources are
-called `Token.sol`. A source no compilation references falls back to a bare
-hash; with all 37 compiled shards that is a small remainder.
+Storage and compute needs:
 
 |                    | `e4` slice | per-compilation | deduplicated |
 |--------------------|-----------:|----------------:|-------------:|
@@ -173,8 +164,6 @@ hash; with all 37 compiled shards that is a small remainder.
 | content bytes      |     766 MB |         ~270 GB |      103.6 GB |
 | actually allocated |    1.38 GB |         ~485 GB |       ~121 GB |
 
-Add `--solidity-only` to drop the ~0.02% of sources that are Vyper or junk;
-without it those are written as `.sol` and show up as extractor parse failures.
 Both scripts are resumable — re-running skips what exists — and `-j` sets the
 worker count.
 
