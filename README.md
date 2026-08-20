@@ -190,8 +190,11 @@ We recommend using tmux to run this, as it may take a long while:
 ### Querying
 
 ```bash
-./query_dbs.py ../dbs ../fnlist -q analysis/FunctionList.ql
+./query_dbs.py ../dbs ../fnlist -q ../queries/analysis/FunctionList.ql
 ```
+
+`-q` is a filesystem path resolved against the current directory, not a
+pack-relative one — hence the `../queries/` prefix when running from `sourcify/`.
 
 Results land in `<out>/<shard>/<query>.json`. Re-run it with a different `-q` as
 often as you like — no re-extraction, and CodeQL reuses cached results per
