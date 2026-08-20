@@ -28,7 +28,9 @@ setup-extractor    # build the binary, generate the dbscheme & QL library
 in `extractor-pack/tools/`, plus `solidity.dbscheme` and `TreeSitter.qll` — so
 re-run it after touching the extractor or the grammar.
 
-## Extract the sources into a database
+## Example queries and tests
+
+Create a DB out of the tests:
 
 ```bash
 codeql database create tests-db --language=solidity \
@@ -42,7 +44,7 @@ writing `tests-db/`: the relational database (one table per AST node kind, per
 `solidity.dbscheme`) plus a copy of the sources so results can point back at
 lines.
 
-## Run a query
+### Run a query against the tests
 
 Queries under `queries/analysis/` are **table queries**:
 
@@ -58,7 +60,7 @@ $ codeql bqrs decode --format=text --result-set=externalCalls r.bqrs
 ...
 ```
 
-## Example Queries
+### Example Queries
 
 All queries live in [`queries/analysis/`](queries/analysis/).
 
@@ -102,32 +104,12 @@ every verified contract as parquet shards, in two datasets that join on a hash:
 cd sourcify
 ./download_parquet.py sources -n 632                     # hash -> content (17.4 GB)
 ./download_parquet.py compiled_contracts_sources -n 40   # id -> hash, path (1.4 GB)
-```
-
-### One compilation
-
-`extract_compilation.py` takes a `compilation_id` prefix, joins the two datasets
-and reproduces that compilation's original directory layout:
-
-```bash
-./extract_compilation.py e4    # -> extracted/<compilation_id>/<path>
-```
-
-It holds the content of everything it matches in memory, so it suits a slice, not
-the whole dataset. A longer prefix extracts fewer compilations.
-
-## The whole corpus
-
-`extract_all_sources.py` streams the sources shards and writes each *unique*
-content once, so memory stays flat:
-
-```bash
 ./extract_all_sources.py -o ../corpus     # -> <xx>/<yy>/<hash>__Ownable.sol
 ```
 
 Storage and compute needs:
 
-|                    | `e4` slice | per-compilation |
+|                    | only one slice (e.g. `e4`) | Total |
 |--------------------|-----------:|----------------:|
 | files              |    101,663 |           25.2M |
 | content bytes      |     766 MB |         ~270 GB |
