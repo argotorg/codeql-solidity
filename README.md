@@ -212,7 +212,7 @@ Then enrich and show:
 `-e` joins the `compiled_contracts_sources` parquet onto the rows being
 displayed, adding `ncomp` (how many compilations reuse that source), `npaths`
 and `path` — enough to tell project code from a vendored dependency. It runs
-after filtering and limiting, so filter first; it refuses more than 500 rows.
+after filtering and limiting, so filter first; it refuses more than 50k rows.
 
 ## Testing
 

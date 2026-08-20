@@ -27,7 +27,12 @@ ENRICH_COLS = ["ncomp", "npaths", "path"]
 
 
 def lookup(hashes, compiled):
-    """source_hash hex -> (n compilations, [paths, most common first])."""
+    """source_hash hex -> (n compilations, [paths, most common first]).
+
+    Counts inside Arrow: a vendored source can appear in ~500k compilations,
+    and materialising those ids as Python objects is what blows up, not the
+    number of hashes asked for.
+    """
     import pyarrow.compute as pc
     import pyarrow.dataset as ds
 
@@ -35,16 +40,22 @@ def lookup(hashes, compiled):
     tbl = ds.dataset(compiled, format="parquet").to_table(
         columns=["source_hash", "path", "compilation_id"],
         filter=pc.field("source_hash").isin(want))
-    comps = defaultdict(set)
-    paths = defaultdict(Counter)
-    for h, p, c in zip(tbl["source_hash"].to_pylist(),
-                       tbl["path"].to_pylist(),
-                       tbl["compilation_id"].to_pylist()):
-        hx = bytes(h).hex()
-        comps[hx].add(c)
-        paths[hx][p] += 1
-    return {h: (len(comps[h]), [p for p, _ in paths[h].most_common()])
-            for h in comps}
+
+    ncomp = tbl.group_by("source_hash").aggregate([("compilation_id", "count_distinct")])
+    bypath = tbl.group_by(["source_hash", "path"]).aggregate([([], "count_all")])
+
+    out = {bytes(h).hex(): (n, [])
+           for h, n in zip(ncomp["source_hash"].to_pylist(),
+                           ncomp["compilation_id_count_distinct"].to_pylist())}
+    ranked = defaultdict(list)
+    for h, p, n in zip(bypath["source_hash"].to_pylist(),
+                       bypath["path"].to_pylist(),
+                       bypath["count_all"].to_pylist()):
+        ranked[bytes(h).hex()].append((n, p))
+    for h, ps in ranked.items():
+        ps.sort(key=lambda t: (-t[0], t[1]))
+        out[h] = (out[h][0], [p for _, p in ps])
+    return out
 
 
 def enrich(header, rows, compiled, col):
@@ -172,8 +183,8 @@ def main():
                                          "(default: the first *_file column)")
     ap.add_argument("--compiled", default=os.path.join(HERE, "compiled_contracts_sources"),
                     help="Sourcify compiled_contracts_sources parquet dir")
-    ap.add_argument("--max-enrich", type=int, default=500,
-                    help="refuse to resolve more hashes than this")
+    ap.add_argument("--max-enrich", type=int, default=50000,
+                    help="refuse to resolve more rows than this")
     ap.add_argument("--max-width", type=int, default=48)
     ap.add_argument("--csv", action="store_true", help="emit csv, not a table")
     args = ap.parse_args()
