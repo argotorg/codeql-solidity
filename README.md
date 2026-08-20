@@ -214,9 +214,9 @@ displayed, adding `ncomp` (how many compilations reuse that source), `npaths`
 and `path` — enough to tell project code from a vendored dependency. It runs
 after filtering and limiting, so filter first; it refuses more than 500 rows.
 
-## Example Sourcify e4 slice
+## Testing
 
-Every command needed to go from nothing to query results over the `e4` slice
+Let's test on e4 slice. Every command needed to go from nothing to query results over the `e4` slice
 (18,380 compilations, ~101k `.sol`). Each block assumes whatever is already there
 is stale and removes it first.
 
