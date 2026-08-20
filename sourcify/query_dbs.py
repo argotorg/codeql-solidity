@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """Run queries over the shard databases built by build_dbs.py.
 
-Usage: ./query_dbs.py <db-dir> <out-dir> [-q QUERY]... [-j N] [--ram MB] [prefix...]
+Usage: ./query_dbs.py <db-dir> <out-dir> [-q QUERY]... [-w N] [-j N] [--ram MB] [prefix...]
 
 Re-runnable: point -q at a different .ql, suite or directory and it queries the
 same databases again. Results land in <out-dir>/<shard>/<query>.json. Without -q
 it runs the repo's whole queries/ pack.
+
+Parallelism defaults to one single-threaded evaluator per core across shards,
+which scales far better than one many-threaded evaluator per shard. Each worker
+is a separate JVM, so --ram is per worker: lower -w if you run out of memory.
 """
 import argparse
 import os
@@ -75,9 +79,11 @@ def main():
     ap.add_argument("prefixes", nargs="*", help="default: every built database")
     ap.add_argument("-q", "--query", action="append", default=[],
                     help="a .ql, .qls or directory; repeatable (default: queries/)")
-    ap.add_argument("-j", "--jobs", type=int, default=os.cpu_count())
-    ap.add_argument("-w", "--workers", type=int, default=1)
-    ap.add_argument("--ram", type=int, help="MB, per evaluator")
+    ap.add_argument("-j", "--jobs", type=int, default=1,
+                    help="evaluator threads per shard (default: 1)")
+    ap.add_argument("-w", "--workers", type=int, default=os.cpu_count(),
+                    help="shards queried concurrently (default: one per core)")
+    ap.add_argument("--ram", type=int, help="MB, per worker")
     ap.add_argument("--rerun", action="store_true",
                     help="ignore cached results in the database")
     args = ap.parse_args()
@@ -90,7 +96,8 @@ def main():
         d for d in os.listdir(dbdir)
         if os.path.exists(os.path.join(dbdir, d, ".built")))
     os.makedirs(out, exist_ok=True)
-    print(f"{len(prefixes)} database(s) x {len(queries)} query path(s) -> {out}", flush=True)
+    print(f"{len(prefixes)} database(s) x {len(queries)} query path(s), "
+          f"{args.workers}w x {args.jobs}j -> {out}", flush=True)
 
     env = dict(os.environ,
                CODEQL_EXTRACTOR_SOLIDITY_ROOT=os.path.join(root, "extractor-pack"))
