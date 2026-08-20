@@ -8,8 +8,9 @@ same databases again. Results land in <out-dir>/<shard>/<query>.json. Without -q
 it runs the repo's whole queries/ pack.
 
 Parallelism defaults to one single-threaded evaluator per core across shards,
-which scales far better than one many-threaded evaluator per shard. Each worker
-is a separate JVM, so --ram is per worker: lower -w if you run out of memory.
+which scales far better than one many-threaded evaluator per shard, capped so
+the workers fit in memory. Each worker is a separate JVM that would otherwise
+size its heap from *total* machine RAM, so -w and --ram are chosen together.
 """
 import argparse
 import os
@@ -33,6 +34,31 @@ def resolve_queries(queries, root, env):
                          [f"--additional-packs={root}"],
                          env=env, capture_output=True, text=True, check=True).stdout
     return [l.strip() for l in out.splitlines() if l.strip().endswith(".ql")]
+
+
+MEM_FRACTION = 0.6   # rest is page cache for the mmapped relations
+MB_PER_WORKER = 5000  # steady-state working set of one shard evaluator
+
+
+def total_ram_mb():
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    return int(line.split()[1]) // 1024
+    except OSError:
+        pass
+    return 0
+
+
+def plan(workers, ram, cores):
+    """Pick -w/--ram so the JVMs together fit in MEM_FRACTION of RAM."""
+    budget = int(total_ram_mb() * MEM_FRACTION)
+    if not budget:
+        return workers or cores, ram
+    if not workers:
+        workers = max(1, min(cores, budget // (ram or MB_PER_WORKER)))
+    return workers, ram or max(2048, budget // workers)
 
 
 def query(job):
@@ -81,12 +107,16 @@ def main():
                     help="a .ql, .qls or directory; repeatable (default: queries/)")
     ap.add_argument("-j", "--jobs", type=int, default=1,
                     help="evaluator threads per shard (default: 1)")
-    ap.add_argument("-w", "--workers", type=int, default=os.cpu_count(),
-                    help="shards queried concurrently (default: one per core)")
-    ap.add_argument("--ram", type=int, help="MB, per worker")
+    ap.add_argument("-w", "--workers", type=int,
+                    help="shards queried concurrently (default: one per core, "
+                         "capped to what fits in RAM)")
+    ap.add_argument("--ram", type=int,
+                    help="MB, per worker (default: the memory budget split "
+                         "across -w)")
     ap.add_argument("--rerun", action="store_true",
                     help="ignore cached results in the database")
     args = ap.parse_args()
+    args.workers, args.ram = plan(args.workers, args.ram, os.cpu_count())
 
     root = subprocess.run(["git", "rev-parse", "--show-toplevel"],
                           capture_output=True, text=True, check=True).stdout.strip()
@@ -97,7 +127,7 @@ def main():
         if os.path.exists(os.path.join(dbdir, d, ".built")))
     os.makedirs(out, exist_ok=True)
     print(f"{len(prefixes)} database(s) x {len(queries)} query path(s), "
-          f"{args.workers}w x {args.jobs}j -> {out}", flush=True)
+          f"{args.workers}w x {args.jobs}j, {args.ram}MB each -> {out}", flush=True)
 
     env = dict(os.environ,
                CODEQL_EXTRACTOR_SOLIDITY_ROOT=os.path.join(root, "extractor-pack"))
