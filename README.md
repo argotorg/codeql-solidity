@@ -158,11 +158,11 @@ content once, so memory stays flat:
 
 Storage and compute needs:
 
-|                    | `e4` slice | per-compilation | deduplicated |
-|--------------------|-----------:|----------------:|-------------:|
-| files              |    101,663 |           25.2M |    6,301,900 |
-| content bytes      |     766 MB |         ~270 GB |      103.6 GB |
-| actually allocated |    1.38 GB |         ~485 GB |       ~121 GB |
+|                    | `e4` slice | per-compilation |
+|--------------------|-----------:|----------------:|
+| files              |    101,663 |           25.2M |
+| content bytes      |     766 MB |         ~270 GB |
+| actually allocated |    1.38 GB |         ~485 GB |
 
 Both scripts are resumable — re-running skips what exists — and `-j` sets the
 worker count.
@@ -183,7 +183,7 @@ We recommend using tmux to run this, as it may take a long while:
 | per shard | ~4.6 min, 1.2 GB |
 | 256 shards, sequential | **~20 h** |
 | with `-w 2` / `-w 4` | ~10 h / ~5 h |
-| databases total | ~307 GB |
+| databases total | ~400 GB |
 
 `-j` is threads within a shard, `-w` is shards built at once (~10 GB RAM each).
 
@@ -203,7 +203,7 @@ Results land in `<out>/<shard>/<query>.json`
 ./merge_results.py ../fnlist            # -> ../fnlist/merged/<query>__<set>.csv
 ```
 
-Then enrich and show:
+Then enrich and display:
 
 ```bash
 ./show_results.py ../fnlist/merged NAME -e -c container,callable,ncomp,path
