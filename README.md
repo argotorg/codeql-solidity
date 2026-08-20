@@ -138,7 +138,7 @@ We recommend using tmux to run this, as it may take a long while:
 
 `-j` is threads within a shard, `-w` is shards built at once (~10 GB RAM each).
 
-### Querying
+### Run a query on the DBs
 
 ```bash
 ./query_dbs.py ../dbs ../fnlist -q ../queries/analysis/FunctionList.ql
@@ -146,7 +146,7 @@ We recommend using tmux to run this, as it may take a long while:
 
 Results land in `<out>/<shard>/<query>.json`
 
-### Reading the results
+### Displaying the results
 
 `merge_results.py` folds the per-shard JSON into one CSV per result set:
 
