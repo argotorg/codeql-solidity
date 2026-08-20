@@ -193,33 +193,26 @@ We recommend using tmux to run this, as it may take a long while:
 ./query_dbs.py ../dbs ../fnlist -q ../queries/analysis/FunctionList.ql
 ```
 
-`-q` is a filesystem path resolved against the current directory, not a
-pack-relative one — hence the `../queries/` prefix when running from `sourcify/`.
-
-Results land in `<out>/<shard>/<query>.json`. Re-run it with a different `-q` as
-often as you like — no re-extraction, and CodeQL reuses cached results per
-database unless you pass `--rerun`.
+Results land in `<out>/<shard>/<query>.json`
 
 ### Reading the results
 
-`merge_results.py` folds the per-shard JSON into one CSV per result set, and
-`show_results.py` queries those CSVs.
+`merge_results.py` folds the per-shard JSON into one CSV per result set:
 
 ```bash
 ./merge_results.py ../fnlist            # -> ../fnlist/merged/<query>__<set>.csv
-./show_results.py ../fnlist/merged     # list the sets
+```
+
+Then enrich and show:
+
+```bash
+./show_results.py ../fnlist/merged NAME -e -c container,callable,ncomp,path
 ```
 
 `-e` joins the `compiled_contracts_sources` parquet onto the rows being
 displayed, adding `ncomp` (how many compilations reuse that source), `npaths`
 and `path` — enough to tell project code from a vendored dependency. It runs
 after filtering and limiting, so filter first; it refuses more than 500 rows.
-
-```bash
-./show_results.py ../fnlist/merged deleteMemoryByteElement -e -c container,callable,ncomp,path
-```
-
-`ncomp` counts compilations, not on-chain deployments.
 
 ## Example Sourcify e4 slice
 
