@@ -200,6 +200,27 @@ Results land in `<out>/<shard>/<query>.json`. Re-run it with a different `-q` as
 often as you like — no re-extraction, and CodeQL reuses cached results per
 database unless you pass `--rerun`.
 
+### Reading the results
+
+`merge_results.py` folds the per-shard JSON into one CSV per result set, and
+`show_results.py` queries those CSVs.
+
+```bash
+./merge_results.py ../fnlist            # -> ../fnlist/merged/<query>__<set>.csv
+./show_results.py ../fnlist/merged     # list the sets
+```
+
+`-e` joins the `compiled_contracts_sources` parquet onto the rows being
+displayed, adding `ncomp` (how many compilations reuse that source), `npaths`
+and `path` — enough to tell project code from a vendored dependency. It runs
+after filtering and limiting, so filter first; it refuses more than 500 rows.
+
+```bash
+./show_results.py ../fnlist/merged deleteMemoryByteElement -e -c container,callable,ncomp,path
+```
+
+`ncomp` counts compilations, not on-chain deployments.
+
 ## Example Sourcify e4 slice
 
 Every command needed to go from nothing to query results over the `e4` slice

@@ -5,7 +5,7 @@ Usage: ./merge_results.py <out-dir> [-o merged-dir] [--format csv|jsonl|both]
                           [--sum SET]... [-q QUERY]... [--full-paths]
 
 Reads <out-dir>/<shard>/<query>.json and writes
-<merged>/<query>__<set>.csv (and/or .jsonl), streaming one shard at a time.
+<out-dir>/merged/<query>__<set>.csv (and/or .jsonl), one shard at a time.
 Entity columns are flattened to <col>, <col>_file, <col>_line. A leading
 `shard` column records which database each row came from.
 """
@@ -53,12 +53,13 @@ def flatten_row(tuple_, columns, shard, keep_path):
     return row
 
 
-def shard_files(outdir, wanted):
+def shard_files(outdir, wanted, skip):
     """(shard, query, path) for every per-shard result file, in shard order."""
     for shard in sorted(d for d in os.listdir(outdir)
-                        if os.path.isdir(os.path.join(outdir, d))
-                        and not d.startswith("_")):
+                        if os.path.isdir(os.path.join(outdir, d))):
         sd = os.path.join(outdir, shard)
+        if os.path.abspath(sd) == skip:   # our own output, from an earlier run
+            continue
         for f in sorted(os.listdir(sd)):
             if f.endswith(".json") and (not wanted or f[:-5] in wanted):
                 yield shard, f[:-5], os.path.join(sd, f)
@@ -98,7 +99,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("outdir")
-    ap.add_argument("-o", "--merged", help="default: <out-dir>/_merged")
+    ap.add_argument("-o", "--merged", help="default: <out-dir>/merged")
     ap.add_argument("--format", choices=["csv", "jsonl", "both"], default="csv")
     ap.add_argument("--sum", action="append", default=None, metavar="SET",
                     help="aggregate this set instead of concatenating, summing "
@@ -110,13 +111,13 @@ def main():
     args = ap.parse_args()
 
     outdir = os.path.abspath(args.outdir)
-    merged = os.path.abspath(args.merged or os.path.join(outdir, "_merged"))
+    merged = os.path.abspath(args.merged or os.path.join(outdir, "merged"))
     summed = set(args.sum if args.sum is not None else ["stats"])
     wanted = {os.path.basename(q)[:-3] if q.endswith(".ql") else q
               for q in args.query}
     os.makedirs(merged, exist_ok=True)
 
-    files = list(shard_files(outdir, wanted))
+    files = list(shard_files(outdir, wanted, merged))
     if not files:
         sys.exit(f"No per-shard .json under {outdir}")
     print(f"{len(files)} shard file(s) -> {merged}", flush=True)
