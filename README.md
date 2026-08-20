@@ -58,37 +58,6 @@ $ codeql bqrs decode --format=text --result-set=externalCalls r.bqrs
 ...
 ```
 
-The argument `--format=csv` writes the same table as CSV. For downstream tooling, decode to
-JSON and ask for source spans:
-
-```bash
-$ codeql bqrs decode --format=json --entities=url,string \
-    --result-set=externalCalls r.bqrs > externalCalls.json
-```
-
-Then you get:
-
-```json
-{
-  "columns": [
-    { "name": "contract", "kind": "String" },
-    { "name": "function", "kind": "String" },
-    { "name": "callType", "kind": "String" },
-    { "name": "guarded",  "kind": "Boolean" },
-    { "name": "node",     "kind": "Entity" }
-  ],
-  "tuples": [
-    ["ReentrancyVulnerable", "withdraw", "call", false, {
-      "label": "CallExpression",
-      "url": {
-        "uri": "file:///home/you/codeql-solidity/tests/fixtures/ReentrancyTest.sol",
-        "startLine": 16, "startColumn": 28, "endLine": 16, "endColumn": 62
-      }
-    }]
-  ]
-}
-```
-
 ## Example Queries
 
 All queries live in [`queries/analysis/`](queries/analysis/).
