@@ -77,4 +77,4 @@ sourcify/**/*.sol
 # Security queries for unreleased solc bugs, and their corpora.
 /queries/analysis/security*
 /tests/security*
-
+/bug-*
