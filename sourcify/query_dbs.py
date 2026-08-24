@@ -105,9 +105,9 @@ def main():
     ap.add_argument("prefixes", nargs="*", help="default: every built database")
     ap.add_argument("-q", "--query", action="append", default=[],
                     help="a .ql, .qls or directory; repeatable (default: queries/)")
-    ap.add_argument("-j", "--jobs", type=int, default=1,
+    ap.add_argument("-j", "--jobs", type=int, default=8,
                     help="evaluator threads per shard (default: 1)")
-    ap.add_argument("-w", "--workers", type=int,
+    ap.add_argument("-w", "--workers", type=int, default=5,
                     help="shards queried concurrently (default: one per core, "
                          "capped to what fits in RAM)")
     ap.add_argument("--ram", type=int,
