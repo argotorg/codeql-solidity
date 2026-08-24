@@ -180,7 +180,7 @@ full path, pass `--full-path` to get a `*_file` value you can paste here.
 Output filenames match what `extract_all_sources.py` would have written. The
 name comes from `compiled_contracts_sources`.
 
-### Resolving a source to an on-chain address
+### Resolving a source to on-chain address(es)
 Let's get the data (about 10GB):
 
 ```bash
