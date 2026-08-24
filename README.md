@@ -181,7 +181,7 @@ Output filenames match what `extract_all_sources.py` would have written. The
 name comes from `compiled_contracts_sources`.
 
 ### Resolving a source to an on-chain address
-Let's get the data:
+Let's get the data (about 10GB):
 
 ```bash
 ./download_parquet.py verified_contracts   -n 48   # compilation_id <-> deployment_id (4.2 GB)
@@ -198,13 +198,10 @@ anything containing one, like `fetch_source.py`:
 ```
 
 `--verify` re-fetches the sources from Sourcify and checks one of them hashes
-back to the input, so a link is proven rather than inferred — `source_hash` is
-plain sha256 of the content. `--chain N` restricts the output to one chain.
+back to the input. The `source_hash` is plain sha256 of the content
 
 One source can back **many** deployments, so expect several addresses per hash:
-the same compilation redeployed. `ncomp` from `show_results.py -e` counts
-compilations, not deployments, and the two are not the same number. The chain id
-matters as much as the address — plenty of verified contracts are on testnets.
+the same compilation redeployed.
 
 ## Testing
 
