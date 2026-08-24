@@ -184,8 +184,8 @@ name comes from `compiled_contracts_sources`.
 Let's get the data (about 10GB):
 
 ```bash
-./download_parquet.py verified_contracts   -n 48   # compilation_id <-> deployment_id (4.2 GB)
-./download_parquet.py contract_deployments -n 48   # deployment_id -> chain_id, address (5.4 GB)
+./download_parquet.py verified_contracts   -n 48   # compilation_id <-> deployment_id
+./download_parquet.py contract_deployments -n 48   # deployment_id -> chain_id, address
 ```
 
 Then `resolve_address.py` walks
@@ -197,11 +197,10 @@ anything containing one, like `fetch_source.py`:
 ./resolve_address.py <hash-or-uri>... --verify
 ```
 
-`--verify` re-fetches the sources from Sourcify and checks one of them hashes
-back to the input. The `source_hash` is plain sha256 of the content
-
-One source can back **many** deployments, so expect several addresses per hash:
-the same compilation redeployed.
+The `--verify` option re-fetches the sources from Sourcify and checks one of
+them hashes back to the input. The `source_hash` is plain sha256 of the
+content. One source can back **many** deployments, so expect several addresses
+per hash: the same compilation redeployed.
 
 ## Testing
 
