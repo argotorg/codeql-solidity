@@ -188,7 +188,23 @@ Let's get the data:
 ./download_parquet.py contract_deployments -n 48   # deployment_id -> chain_id, address (5.4 GB)
 ```
 
-which allows us to get a `repo.sourcify.dev/<chainId>/<address>` link.
+Then `resolve_address.py` walks
+`compiled_contracts_sources` → `verified_contracts` → `contract_deployments`
+and prints a `repo.sourcify.dev/<chainId>/<address>` link. It takes a hash or
+anything containing one, like `fetch_source.py`:
+
+```bash
+./resolve_address.py <hash-or-uri>... --verify
+```
+
+`--verify` re-fetches the sources from Sourcify and checks one of them hashes
+back to the input, so a link is proven rather than inferred — `source_hash` is
+plain sha256 of the content. `--chain N` restricts the output to one chain.
+
+One source can back **many** deployments, so expect several addresses per hash:
+the same compilation redeployed. `ncomp` from `show_results.py -e` counts
+compilations, not deployments, and the two are not the same number. The chain id
+matters as much as the address — plenty of verified contracts are on testnets.
 
 ## Testing
 
