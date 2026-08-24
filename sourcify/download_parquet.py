@@ -9,6 +9,11 @@ Datasets (see the listing for the full set):
   compiled_contracts_sources  compilation_id -> source_hash, path  (step 1000000)
   sources                     source_hash -> content               (step 10000)
   code                        creation/runtime bytecode            (step 100000)
+  verified_contracts          compilation_id <-> deployment_id     (step 1000000)
+  contract_deployments        deployment_id -> chain_id, address   (step 1000000)
+
+The last two are what turn a source_hash into an on-chain address: join
+compiled_contracts_sources -> verified_contracts -> contract_deployments.
 
 Files are named <dataset>_<start>_<end>.parquet and downloaded into <outdir>
 (default: a subdir named after the dataset). Downloads are resumable (HTTP Range

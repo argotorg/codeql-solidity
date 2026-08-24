@@ -179,6 +179,17 @@ full path, pass `--full-path` to get a `*_file` value you can paste here.
 
 Output filenames match what `extract_all_sources.py` would have written. The
 name comes from `compiled_contracts_sources`.
+
+### Resolving a source to an on-chain address
+Let's get the data:
+
+```bash
+./download_parquet.py verified_contracts   -n 48   # compilation_id <-> deployment_id (4.2 GB)
+./download_parquet.py contract_deployments -n 48   # deployment_id -> chain_id, address (5.4 GB)
+```
+
+which allows us to get a `repo.sourcify.dev/<chainId>/<address>` link.
+
 ## Testing
 
 Let's test on e4 slice. Every command needed to go from nothing to query results over the `e4` slice
