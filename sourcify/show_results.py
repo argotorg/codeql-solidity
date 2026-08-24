@@ -2,13 +2,15 @@
 """Show a merged result set from merge_results.py as a terminal table.
 
 Usage: ./show_results.py <merged-dir|csv> [SET] [-c COLS] [-w COL=VAL]...
-                         [-g COLS] [-s COL] [-r] [-n N] [-e] [--csv]
+                         [-g COLS] [-s COL] [-r] [-n N] [-e] [--full-path]
+                         [--csv]
 
 With a directory and no SET, lists what is available. -w takes COL=VAL,
 COL!=VAL or COL~REGEX. -g counts rows per group instead of listing them.
 -e joins the Sourcify compiled_contracts_sources parquet onto the rows that
 are actually displayed, adding how many compilations reuse each source and
-what paths it is compiled under.
+what paths it is compiled under. --full-path exempts the *_file columns from
+--max-width, so their hash can be handed to fetch_source.py.
 """
 import argparse
 import csv
@@ -142,17 +144,19 @@ def sortkey(v):
         return (1, 0.0, v)
 
 
-def render(header, rows, maxw, total, shown_all):
+def render(header, rows, maxw, total, shown_all, wide=frozenset()):
     if not rows:
         print("(no rows)")
         return
     cells = [[str(c) for c in r] for r in rows]
     for r in cells:
         for i, c in enumerate(r):
-            if len(c) > maxw:
+            if i not in wide and len(c) > maxw:
                 r[i] = c[:maxw - 1] + "…"
-    w = [min(maxw, max(len(header[i]), *(len(r[i]) for r in cells)))
-         for i in range(len(header))]
+    w = []
+    for i in range(len(header)):
+        n = max(len(header[i]), *(len(r[i]) for r in cells))
+        w.append(n if i in wide else min(maxw, n))
     num = [all(sortkey(r[i])[0] == 0 and r[i] != "" for r in cells)
            for i in range(len(header))]
     def line(vals):
@@ -186,6 +190,9 @@ def main():
     ap.add_argument("--max-enrich", type=int, default=50000,
                     help="refuse to resolve more rows than this")
     ap.add_argument("--max-width", type=int, default=48)
+    ap.add_argument("--full-path", action="store_true",
+                    help="never truncate the *_file columns, so the hash in a "
+                         "corpus path stays usable with fetch_source.py")
     ap.add_argument("--csv", action="store_true", help="emit csv, not a table")
     args = ap.parse_args()
 
@@ -260,7 +267,9 @@ def main():
         w.writerow(header)
         w.writerows(rows)
     else:
-        render(header, rows, args.max_width, total, shown_all)
+        wide = frozenset(i for i, h in enumerate(header) if h.endswith("_file")) \
+            if args.full_path else frozenset()
+        render(header, rows, args.max_width, total, shown_all, wide)
         if meta:
             print()
             for h, (n, ps) in sorted(meta.items(), key=lambda kv: -kv[1][0]):

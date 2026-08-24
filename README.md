@@ -169,30 +169,16 @@ after filtering and limiting, so filter first; it refuses more than 50k rows.
 
 You can fetch the source code of a single contract in order examine it with
 `fetch_source.py` It pulls individual sources straight out of the parquet, so
-you do not need the extracted corpus on disk:
-
-```bash
-./fetch_source.py 05876f4c5b073da2560a3ef8adfb493a3fdb9f9f379e35f888d90b1911c94703
-# -> ./05876f4...__HorseSales.sol
-```
-
-It takes a bare `source_hash` or anything containing one, so the corpus path or
-`file://` URI from a result row can be pasted in unchanged, and it accepts
-several at once:
+you do not need the extracted corpus on disk. The tool
+takes a `source_hash` or anything containing one. The `show_results.py` clips the
+full path, pass `--full-path` to get a `*_file` value you can paste here.
 
 ```bash
 ./fetch_source.py <uri-from-a-result-row> <another-hash> -o /tmp/triage
 ```
 
 Output filenames match what `extract_all_sources.py` would have written. The
-name comes from `compiled_contracts_sources`; without that dataset you still
-get the content, as a bare `<hash>.sol`. `--stdout` writes the content instead,
-for piping:
-
-```bash
-./fetch_source.py <hash> --stdout | solc --ast-compact-json -
-```
-
+name comes from `compiled_contracts_sources`.
 ## Testing
 
 Let's test on e4 slice. Every command needed to go from nothing to query results over the `e4` slice
