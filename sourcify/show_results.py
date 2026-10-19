@@ -244,7 +244,7 @@ def main():
         rows, shown_all = rows[:args.limit], False
 
     meta = None
-    if args.enrich:
+    if args.enrich and rows:
         if not os.path.isdir(args.compiled):
             sys.exit(f"No such parquet dir: {args.compiled}\n"
                      f"Get it with ./download_parquet.py compiled_contracts_sources")
