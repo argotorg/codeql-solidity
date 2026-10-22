@@ -18,15 +18,15 @@ jobs:
       run:
         shell: nix develop .#rust --command bash -e {0}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - uses: cachix/install-nix-action@v31
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31.11.2
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
       - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: extractor
 
@@ -51,7 +51,9 @@ jobs:
     runs-on: ubuntu-latest
     # Not via nix: the dev shell tracks nixpkgs' rustc, this pins the floor.
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@1.82.0
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: dtolnay/rust-toolchain@40a9285135951116a4a08e10a723a42b12d721d3 # 1.82.0
+        with:
+          toolchain: 1.82.0
       - run: cargo build
         working-directory: extractor
